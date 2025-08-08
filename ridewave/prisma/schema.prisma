@@ -530,6 +530,22 @@ model Booking {
   payments          Payment[]
   supportTickets    SupportTicket[]
   mpesaTransactions MPesaTransaction[]
+  passengers        BookingPassenger[]
+}
+
+model BookingPassenger {
+  id              String   @id @default(cuid())
+  booking         Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId       String
+  name            String
+  email           String
+  phone           String
+  seatNumber      String
+  specialRequests String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([bookingId, seatNumber])
 }
 
 model Review {
