@@ -23,10 +23,12 @@ interface Message {
 
 interface ChatbotProps {
   className?: string
+  isOpen?: boolean
+  onToggle?: () => void
 }
 
-export function AIChatbot({ className }: ChatbotProps) {
-  const [isOpen, setIsOpen] = useState(false)
+export function AIChatbot({ className, isOpen: controlledOpen, onToggle }: ChatbotProps) {
+  const [isOpen, setIsOpen] = useState(controlledOpen ?? false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -230,7 +232,7 @@ export function AIChatbot({ className }: ChatbotProps) {
     }
 
     // Update conversation context
-    setConversationContext(prev => ({
+    setConversationContext((prev: any) => ({
       ...prev,
       lastIntent: lowerMessage.includes('trip') ? 'trip_search' : 
                   lowerMessage.includes('booking') ? 'booking_management' :
@@ -283,7 +285,7 @@ export function AIChatbot({ className }: ChatbotProps) {
   if (!isOpen) {
     return (
       <Button
-        onClick={() => setIsOpen(true)}
+        onClick={() => (onToggle ? onToggle() : setIsOpen(true))}
         className={`fixed bottom-4 right-4 z-50 rounded-full w-14 h-14 bg-[#FFD700] hover:bg-[#FFD700]/90 text-black shadow-lg ${className}`}
       >
         <MessageCircle className="h-6 w-6" />
@@ -292,7 +294,7 @@ export function AIChatbot({ className }: ChatbotProps) {
   }
 
   return (
-    <Card className={`fixed bottom-4 right-4 z-50 w-96 shadow-2xl border-zinc-700 bg-zinc-900 ${isMinimized ? 'h-16' : 'h-[600px]'} ${className}`}>
+    <Card className={`fixed bottom-4 right-4 z-50 w-96 shadow-2xl border-zinc-700 bg-zinc-900 ${isMinimized ? 'h-16' : 'h-[600px]'} ${className || ''}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-zinc-800 rounded-t-lg">
         <CardTitle className="flex items-center gap-2 text-white">
           <Bot className="h-5 w-5 text-[#FFD700]" />
@@ -310,7 +312,7 @@ export function AIChatbot({ className }: ChatbotProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setIsOpen(false)}
+            onClick={() => (onToggle ? onToggle() : setIsOpen(false))}
             className="h-8 w-8 p-0 text-zinc-400 hover:text-white"
           >
             <X className="h-4 w-4" />
