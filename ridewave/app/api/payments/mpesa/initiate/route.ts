@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create M-Pesa transaction record
-    const mpesaTransaction = await prisma.mpesaTransaction.create({
+    const mpesaTransaction = await prisma.mPesaTransaction.create({
       data: {
         bookingId: booking.id,
         checkoutRequestId: stkResponse.CheckoutRequestID,

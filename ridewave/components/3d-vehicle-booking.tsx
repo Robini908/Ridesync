@@ -398,7 +398,7 @@ export const VehicleBooking3D: React.FC<VehicleBooking3DProps> = ({ trip, onBook
         <CardContent>
           <h2 className="text-xl font-semibold mb-4">Access Restricted</h2>
           <p className="text-gray-600 mb-4">
-            You don't have permission to create bookings. Please contact support or upgrade your account.
+                         You don&apos;t have permission to create bookings. Please contact support or upgrade your account.
           </p>
           <Button onClick={() => router.push('/contact')}>
             Contact Support

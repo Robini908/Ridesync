@@ -471,7 +471,7 @@ export const Seat3DSelector: React.FC<Seat3DSelectorProps> = ({
 
         {!canSelectSeats && (
           <div className="mt-4 p-3 bg-red-100 text-red-700 rounded">
-            You don't have permission to select seats. Please contact support.
+            You don&apos;t have permission to select seats. Please contact support.
           </div>
         )}
       </div>

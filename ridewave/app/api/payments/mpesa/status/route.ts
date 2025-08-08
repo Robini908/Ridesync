@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Get M-Pesa transaction from database
-    const mpesaTransaction = await prisma.mpesaTransaction.findUnique({
+    const mpesaTransaction = await prisma.mPesaTransaction.findUnique({
       where: { checkoutRequestId },
       include: {
         booking: {

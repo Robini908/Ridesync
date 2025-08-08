@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@clerk/nextjs'
+import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { createPermissionChecker, PERMISSIONS } from '@/lib/rbac'
 import { z } from 'zod'
@@ -35,7 +35,7 @@ const createBookingSchema = z.object({
 // Get bookings for a user (with RBAC filtering)
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = auth()
+    const { userId } = await auth()
     
     if (!userId) {
       return NextResponse.json(
@@ -102,7 +102,8 @@ export async function GET(request: NextRequest) {
         user: {
           select: {
             id: true,
-            name: true,
+            firstName: true,
+            lastName: true,
             email: true
           }
         }
@@ -139,7 +140,7 @@ export async function GET(request: NextRequest) {
 // Create a new booking
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = auth()
+    const { userId } = await auth()
     
     if (!userId) {
       return NextResponse.json(
@@ -280,7 +281,8 @@ export async function POST(request: NextRequest) {
           user: {
             select: {
               id: true,
-              name: true,
+              firstName: true,
+              lastName: true,
               email: true
             }
           }
