@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -76,7 +76,7 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
   // Fetch initial trip data
   useEffect(() => {
     fetchTripData()
-  }, [tripId])
+  }, [fetchTripData])
 
   // Set up WebSocket connection for real-time updates
   useEffect(() => {
@@ -88,7 +88,7 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
         }
       }
     }
-  }, [user, tripId])
+  }, [user, tripId, connectWebSocket])
 
   // Auto-refresh every 30 seconds as fallback
   useEffect(() => {
@@ -99,9 +99,9 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
     }, 30000)
 
     return () => clearInterval(interval)
-  }, [isConnected])
+  }, [isConnected, fetchTripData])
 
-  const fetchTripData = async () => {
+  const fetchTripData = useCallback(async () => {
     try {
       const response = await fetch(`/api/tracking/trip-status?tripId=${tripId}`)
       const data = await response.json()
@@ -118,9 +118,9 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
     } finally {
       setLoading(false)
     }
-  }
+  }, [tripId])
 
-  const connectWebSocket = () => {
+  const connectWebSocket = useCallback(() => {
     try {
       // In production, use wss:// and proper WebSocket server
       const wsUrl = `ws://localhost:3000/api/ws?userId=${user?.id}&tripId=${tripId}`
@@ -171,7 +171,7 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
       console.error('Error connecting WebSocket:', err)
       setIsConnected(false)
     }
-  }
+  }, [user?.id, tripId])
 
   const handleRealTimeUpdate = (message: any) => {
     const update: TripUpdate = message.data

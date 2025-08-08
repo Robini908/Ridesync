@@ -40,6 +40,8 @@ enum UserRole {
   SUPER_ADMIN
   DRIVER
   SUPPORT
+  TENANT_ADMIN
+  TENANT_USER
 }
 
 enum PaymentStatus {
@@ -60,6 +62,276 @@ enum NotificationType {
   SYSTEM_UPDATE
 }
 
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  PAST_DUE
+  UNPAID
+  TRIALING
+}
+
+enum ServiceType {
+  CORE_BOOKING      // Always available
+  ANALYTICS         // Subscription-based
+  WHITE_LABELING    // Subscription-based
+  API_ACCESS        // Subscription-based
+  ADVANCED_REPORTS  // Subscription-based
+  CUSTOM_BRANDING   // Subscription-based
+  EMAIL_MARKETING   // Subscription-based
+  MOBILE_APP        // Subscription-based
+}
+
+// Multi-tenant organization model
+model Tenant {
+  id                String               @id @default(cuid())
+  name              String
+  slug              String               @unique // Subdomain identifier
+  domain            String?              @unique // Custom domain (premium feature)
+  
+  // Branding & Customization
+  logo              String?              // Logo URL
+  favicon           String?              // Favicon URL
+  primaryColor      String               @default("#000000")
+  secondaryColor    String               @default("#ffffff")
+  accentColor       String               @default("#007bff")
+  fontFamily        String               @default("Inter")
+  customCss         String?              // Custom CSS overrides
+  
+  // Contact & Business Info
+  email             String
+  phone             String?
+  address           String?
+  city              String?
+  country           String               @default("US")
+  timezone          String               @default("UTC")
+  language          String               @default("en")
+  
+  // Features & Limits
+  isActive          Boolean              @default(true)
+  isVerified        Boolean              @default(false)
+  maxUsers          Int                  @default(10)
+  maxOperators      Int                  @default(3)
+  maxBookingsPerMonth Int                @default(1000)
+  
+  // Subscription & Billing
+  subscriptionTier  SubscriptionTier     @default(FREE)
+  subscriptionStatus SubscriptionStatus  @default(TRIALING)
+  trialEndsAt       DateTime?
+  billingEmail      String?
+  
+  // Metadata
+  metadata          Json?                // Additional tenant data
+  settings          Json?                // Tenant-specific settings
+  
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  
+  // Relations
+  users             User[]
+  operators         Operator[]
+  subscriptions     TenantSubscription[]
+  serviceAccess     TenantServiceAccess[]
+  emailTemplates    EmailTemplate[]
+  analytics         TenantAnalytics[]
+  auditLogs         AuditLog[]
+  
+  // File uploads for branding
+  brandingAssets    BrandingAsset[]
+  
+  @@index([slug])
+  @@index([domain])
+  @@index([subscriptionTier])
+  @@index([isActive])
+}
+
+// Subscription management for tenants
+model TenantSubscription {
+  id                  String             @id @default(cuid())
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId            String
+  
+  tier                SubscriptionTier
+  status              SubscriptionStatus
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  cancelAtPeriodEnd   Boolean            @default(false)
+  canceledAt          DateTime?
+  
+  // Stripe integration
+  stripeSubscriptionId String?           @unique
+  stripeCustomerId    String?
+  stripePriceId       String?
+  
+  // Billing
+  amountCents         Int
+  currency            String             @default("USD")
+  billingCycle        String             @default("monthly") // monthly, yearly
+  
+  // Usage tracking
+  usageLimit          Json?              // Service-specific limits
+  currentUsage        Json?              // Current usage stats
+  
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  
+  @@index([tenantId])
+  @@index([stripeSubscriptionId])
+  @@index([status])
+}
+
+// Service access control per tenant
+model TenantServiceAccess {
+  id         String      @id @default(cuid())
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId   String
+  
+  serviceType ServiceType
+  isEnabled   Boolean     @default(false)
+  
+  // Usage limits and restrictions
+  usageLimit  Int?        // Monthly limit for this service
+  currentUsage Int        @default(0)
+  resetDate   DateTime?   // When usage counter resets
+  
+  // Feature-specific data
+  metadata    Json?       // Service-specific configuration
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  @@unique([tenantId, serviceType])
+  @@index([tenantId])
+  @@index([serviceType])
+}
+
+// Email template customization per tenant
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  
+  type        String   // booking_confirmation, payment_success, etc.
+  name        String
+  subject     String
+  htmlContent String   // MJML or HTML content
+  textContent String?  // Plain text fallback
+  
+  // Template variables and customization
+  variables   Json?    // Available template variables
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  
+  // Usage tracking
+  sentCount   Int      @default(0)
+  lastSentAt  DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([tenantId, type, isDefault])
+  @@index([tenantId])
+  @@index([type])
+}
+
+// Tenant branding assets (logos, images, etc.)
+model BrandingAsset {
+  id          String   @id @default(cuid())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  
+  type        String   // logo, favicon, banner, background
+  name        String
+  url         String   // File URL (UploadThing or similar)
+  fileSize    Int
+  mimeType    String
+  
+  // Image specific
+  width       Int?
+  height      Int?
+  alt         String?
+  
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([tenantId])
+  @@index([type])
+}
+
+// Analytics per tenant
+model TenantAnalytics {
+  id            String   @id @default(cuid())
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId      String
+  
+  date          DateTime @db.Date
+  
+  // Booking metrics
+  totalBookings     Int @default(0)
+  confirmedBookings Int @default(0)
+  cancelledBookings Int @default(0)
+  totalRevenue      Int @default(0) // in cents
+  
+  // User metrics
+  newUsers         Int @default(0)
+  activeUsers      Int @default(0)
+  totalUsers       Int @default(0)
+  
+  // Operator metrics
+  activeOperators  Int @default(0)
+  totalTrips       Int @default(0)
+  occupancyRate    Float @default(0)
+  
+  // Service usage
+  apiCalls         Int @default(0)
+  emailsSent       Int @default(0)
+  reportsGenerated Int @default(0)
+  
+  metadata         Json? // Additional metrics
+  
+  createdAt        DateTime @default(now())
+  
+  @@unique([tenantId, date])
+  @@index([tenantId])
+  @@index([date])
+}
+
+// Audit log for tenant actions
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId    String
+  
+  userId      String?  // User who performed the action
+  userEmail   String?  // Email of the user
+  
+  action      String   // Action performed
+  resource    String   // Resource affected
+  resourceId  String?  // ID of the affected resource
+  
+  changes     Json?    // Before/after changes
+  metadata    Json?    // Additional context
+  
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Updated User model with tenant relationship
 model User {
   id                String      @id @default(cuid())
   externalId        String      @unique // Clerk user ID
@@ -80,6 +352,11 @@ model User {
   timezone          String      @default("UTC")
   lastLoginAt       DateTime?
   metadata          Json?       // Additional user data
+  
+  // Multi-tenant support
+  tenant            Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId          String?     // Null for platform users, set for tenant users
+  
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   
@@ -92,8 +369,13 @@ model User {
   operatedVehicles  Vehicle[]   @relation("DriverVehicles") // For drivers
   supportTickets    SupportTicket[] @relation("UserTickets")
   assignedTickets   SupportTicket[] @relation("SupportAgent")
+  
+  @@index([tenantId])
+  @@index([email])
+  @@index([role])
 }
 
+// Updated Operator model with tenant relationship
 model Operator {
   id              String     @id @default(cuid())
   name            String
@@ -112,6 +394,11 @@ model Operator {
   coordinates     Json?      // {lat, lng}
   businessHours   Json?      // Operating hours
   policies        Json?      // Cancellation, refund policies
+  
+  // Multi-tenant support
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenantId        String
+  
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   
@@ -120,6 +407,9 @@ model Operator {
   routes          Route[]
   trips           Trip[]
   analytics       OperatorAnalytics[]
+  
+  @@index([tenantId])
+  @@index([email])
 }
 
 model Vehicle {
