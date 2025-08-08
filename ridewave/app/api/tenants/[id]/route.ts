@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 import { SubscriptionService } from "@/lib/subscription";
+
+// Force Node.js runtime for Stripe integration
+export const runtime = 'nodejs';
 import { z } from "zod";
 import { SubscriptionTier, SubscriptionStatus } from "@prisma/client";
 

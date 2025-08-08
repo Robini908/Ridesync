@@ -6,8 +6,11 @@ import { SubscriptionService } from "@/lib/subscription";
 import { SubscriptionTier, SubscriptionStatus } from "@prisma/client";
 import { EmailService } from "@/lib/email";
 
+// Force Node.js runtime for Stripe webhook
+export const runtime = 'nodejs';
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acacia",
+  apiVersion: "2025-07-30.basil",
 });
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;

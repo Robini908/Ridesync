@@ -5,6 +5,9 @@ import { SubscriptionService } from "@/lib/subscription";
 import { z } from "zod";
 import { SubscriptionTier } from "@prisma/client";
 
+// Force Node.js runtime for Stripe integration
+export const runtime = 'nodejs';
+
 // Validation schemas
 const subscriptionActionSchema = z.object({
   action: z.enum(['upgrade', 'downgrade', 'cancel', 'reactivate']),

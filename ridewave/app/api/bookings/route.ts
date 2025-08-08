@@ -1,62 +1,195 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { auth } from '@clerk/nextjs/server'
+import { prisma } from '@/lib/prisma'
+import { createPermissionChecker, PERMISSIONS } from '@/lib/rbac'
 import { z } from 'zod'
 
-const bookingSchema = z.object({
-  tripId: z.string(),
-  passengerName: z.string().min(1),
-  passengerEmail: z.string().email(),
-  passengerPhone: z.string().min(1),
-  seats: z.number().min(1).max(8),
-  seatNumbers: z.array(z.string()),
-  specialRequests: z.string().optional(),
-  totalPriceCents: z.number().min(0)
+// Validation schema for booking creation
+const createBookingSchema = z.object({
+  tripId: z.string().cuid(),
+  seats: z.number().min(1).max(10),
+  seatNumbers: z.array(z.string()).min(1).max(10),
+  passengers: z.array(z.object({
+    name: z.string().min(1).max(100),
+    email: z.string().email(),
+    phone: z.string().min(1).max(20),
+    specialRequests: z.string().optional()
+  })),
+  totalPriceCents: z.number().min(0),
+  pickupLocation: z.object({
+    address: z.string(),
+    coordinates: z.object({
+      lat: z.number(),
+      lng: z.number()
+    })
+  }).optional(),
+  dropoffLocation: z.object({
+    address: z.string(),
+    coordinates: z.object({
+      lat: z.number(),
+      lng: z.number()
+    })
+  }).optional()
 })
 
-export async function POST(req: NextRequest) {
+// Get bookings for a user (with RBAC filtering)
+export async function GET(request: NextRequest) {
   try {
     const { userId } = await auth()
+    
     if (!userId) {
       return NextResponse.json(
-        { error: 'Authentication required' },
+        { error: 'Unauthorized' },
         { status: 401 }
       )
     }
 
-    const body = await req.json()
-    const validatedData = bookingSchema.parse(body)
+    // Check permissions
+    const permissionChecker = await createPermissionChecker(userId)
+    
+    const searchParams = request.nextUrl.searchParams
+    const tripId = searchParams.get('tripId')
+    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100)
+    const offset = parseInt(searchParams.get('offset') || '0')
 
-    // Check if user exists, create if not
-    let user = await prisma.user.findUnique({
-      where: { externalId: userId }
-    })
+    let whereClause: any = {}
 
-    if (!user) {
-      // Create user record if it doesn't exist
-      user = await prisma.user.create({
-        data: {
-          externalId: userId,
-          email: validatedData.passengerEmail,
-          firstName: validatedData.passengerName.split(' ')[0] || '',
-          lastName: validatedData.passengerName.split(' ').slice(1).join(' ') || '',
-          phone: validatedData.passengerPhone
-        }
+    // Users can only see their own bookings unless they have special permissions
+    if (!permissionChecker.hasPermission(PERMISSIONS.BOOKING_LIST)) {
+      // Find user in database
+      const user = await prisma.user.findUnique({
+        where: { externalId: userId }
       })
+      
+      if (!user) {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        )
+      }
+      
+      whereClause.userId = user.id
     }
 
-    // Verify trip exists and has available seats
+    // Filter by trip if specified
+    if (tripId) {
+      whereClause.tripId = tripId
+    }
+
+    // Get bookings with related data
+    const bookings = await prisma.booking.findMany({
+      where: whereClause,
+      include: {
+        trip: {
+          include: {
+            vehicle: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+                seats: true,
+                amenities: true
+              }
+            },
+            operator: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset
+    })
+
+    // Get total count for pagination
+    const totalCount = await prisma.booking.count({
+      where: whereClause
+    })
+
+    return NextResponse.json({
+      bookings,
+      pagination: {
+        total: totalCount,
+        limit,
+        offset,
+        hasMore: offset + limit < totalCount
+      }
+    })
+
+  } catch (error) {
+    console.error('Error fetching bookings:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+// Create a new booking
+export async function POST(request: NextRequest) {
+  try {
+    const { userId } = await auth()
+    
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Check if user has permission to create bookings
+    const permissionChecker = await createPermissionChecker(userId)
+    
+    if (!permissionChecker.hasPermission(PERMISSIONS.BOOKING_CREATE)) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions to create bookings' },
+        { status: 403 }
+      )
+    }
+
+    // Validate request body
+    const body = await request.json()
+    const validatedData = createBookingSchema.parse(body)
+
+    // Find user in database
+    const user = await prisma.user.findUnique({
+      where: { externalId: userId }
+    })
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      )
+    }
+
+    // Verify trip exists and get details
     const trip = await prisma.trip.findUnique({
       where: { id: validatedData.tripId },
       include: {
+        vehicle: true,
+        operator: true,
         bookings: {
           where: {
             status: {
-              in: ['CONFIRMED', 'PENDING']
+              in: ['PENDING', 'CONFIRMED', 'IN_PROGRESS']
             }
           },
           select: {
-            seatNumbers: true
+            seatNumbers: true,
+            seats: true
           }
         }
       }
@@ -69,180 +202,140 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check seat availability
+    // Check if trip is still accepting bookings
+    if (new Date(trip.departureTime) <= new Date()) {
+      return NextResponse.json(
+        { error: 'Cannot book seats for trips that have already departed' },
+        { status: 400 }
+      )
+    }
+
+    // Validate seat availability
     const occupiedSeats = trip.bookings.flatMap(booking => booking.seatNumbers)
     const requestedSeats = validatedData.seatNumbers
+    
     const conflictingSeats = requestedSeats.filter(seat => occupiedSeats.includes(seat))
-
     if (conflictingSeats.length > 0) {
       return NextResponse.json(
         { 
           error: 'Some seats are no longer available',
-          conflictingSeats
+          conflictingSeats 
         },
         { status: 409 }
       )
     }
 
-    if (trip.availableSeats < validatedData.seats) {
+    // Check vehicle capacity
+    const totalBookedSeats = trip.bookings.reduce((sum, booking) => sum + booking.seats, 0)
+    if (totalBookedSeats + validatedData.seats > trip.vehicle.seats) {
       return NextResponse.json(
         { error: 'Not enough seats available' },
         { status: 409 }
       )
     }
 
-    // Generate confirmation code
-    const confirmationCode = `RW${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substr(2, 3).toUpperCase()}`
+    // Validate passenger count matches seat count
+    if (validatedData.passengers.length !== validatedData.seats) {
+      return NextResponse.json(
+        { error: 'Number of passengers must match number of seats' },
+        { status: 400 }
+      )
+    }
 
-    // Create booking
-    const booking = await prisma.booking.create({
-      data: {
-        tripId: validatedData.tripId,
-        userId: user.id,
-        passengerName: validatedData.passengerName,
-        passengerEmail: validatedData.passengerEmail,
-        passengerPhone: validatedData.passengerPhone,
-        seats: validatedData.seats,
-        seatNumbers: validatedData.seatNumbers,
-        totalPriceCents: validatedData.totalPriceCents,
-        confirmationCode,
-        specialRequests: validatedData.specialRequests || null,
-        status: 'PENDING'
-      },
-      include: {
-        trip: {
-          include: {
-            route: true,
-            vehicle: true,
-            operator: true
+    // Generate confirmation code
+    const confirmationCode = `RW${Date.now()}${Math.random().toString(36).substr(2, 9)}`.toUpperCase()
+
+    // Create booking with transaction
+    const booking = await prisma.$transaction(async (tx) => {
+      // Create the booking
+      const newBooking = await tx.booking.create({
+        data: {
+          tripId: validatedData.tripId,
+          userId: user.id,
+          passengerName: validatedData.passengers[0].name,
+          passengerEmail: validatedData.passengers[0].email,
+          passengerPhone: validatedData.passengers[0].phone || '',
+          seats: validatedData.seats,
+          seatNumbers: validatedData.seatNumbers,
+          totalPriceCents: validatedData.totalPriceCents,
+          confirmationCode,
+          pickupLocation: validatedData.pickupLocation ? {
+            address: validatedData.pickupLocation.address,
+            coordinates: validatedData.pickupLocation.coordinates
+          } : undefined,
+          dropoffLocation: validatedData.dropoffLocation ? {
+            address: validatedData.dropoffLocation.address,
+            coordinates: validatedData.dropoffLocation.coordinates
+          } : undefined,
+          specialRequests: validatedData.passengers[0].specialRequests,
+          status: 'PENDING',
+          paymentStatus: 'PENDING'
+        },
+        include: {
+          trip: {
+            include: {
+              vehicle: true,
+              operator: true
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true
+            }
           }
         }
+      })
+
+      // Store passenger details if multiple passengers
+      if (validatedData.passengers.length > 1) {
+        const passengerData = validatedData.passengers.map((passenger, index) => ({
+          bookingId: newBooking.id,
+          name: passenger.name,
+          email: passenger.email,
+          phone: passenger.phone || '',
+          seatNumber: validatedData.seatNumbers[index],
+          specialRequests: passenger.specialRequests
+        }))
+
+        await tx.bookingPassenger.createMany({
+          data: passengerData
+        })
       }
+
+      return newBooking
     })
 
-    // Update trip available seats
-    await prisma.trip.update({
-      where: { id: validatedData.tripId },
-      data: {
-        availableSeats: trip.availableSeats - validatedData.seats,
-        bookedSeats: trip.bookedSeats + validatedData.seats
-      }
-    })
+    // TODO: Send confirmation email
+    // TODO: Create payment intent if payment is required
 
-    // Update user total trips (for loyalty program)
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        totalTrips: user.totalTrips + 1
-      }
-    })
-
-    // TODO: Create Stripe payment intent here
-    // const paymentIntent = await stripe.paymentIntents.create({
-    //   amount: validatedData.totalPriceCents,
-    //   currency: 'usd',
-    //   metadata: { bookingId: booking.id }
-    // })
-
-    // Create notification
-    await prisma.notification.create({
-      data: {
-        userId: user.id,
+    return NextResponse.json(
+      {
         bookingId: booking.id,
-        type: 'BOOKING_CONFIRMATION',
-        title: 'Booking Confirmed',
-        message: `Your booking for ${trip.route.fromCity} to ${trip.route.toCity} has been confirmed.`,
-        data: {
-          confirmationCode,
-          tripDate: trip.departureDate,
-          tripTime: trip.departureTime
-        }
-      }
-    })
-
-    return NextResponse.json({
-      success: true,
-      bookingId: booking.id,
-      confirmationCode,
-      booking: {
-        id: booking.id,
-        confirmationCode,
+        confirmationCode: booking.confirmationCode,
         status: booking.status,
-        totalPrice: booking.totalPriceCents / 100,
-        seatNumbers: booking.seatNumbers,
-        trip: {
-          route: booking.trip.route,
-          departureDate: booking.trip.departureDate,
-          departureTime: booking.trip.departureTime,
-          operator: booking.trip.operator
-        }
-      }
-    })
+        message: 'Booking created successfully'
+      },
+      { status: 201 }
+    )
 
   } catch (error) {
-    console.error('Booking creation error:', error)
+    console.error('Error creating booking:', error)
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { 
-          error: 'Invalid booking data',
-          details: error.errors
+          error: 'Invalid request data',
+          details: error.errors 
         },
         { status: 400 }
       )
     }
 
     return NextResponse.json(
-      { 
-        error: 'Booking failed',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    )
-  }
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      )
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { externalId: userId }
-    })
-
-    if (!user) {
-      return NextResponse.json({ bookings: [] })
-    }
-
-    const bookings = await prisma.booking.findMany({
-      where: { userId: user.id },
-      include: {
-        trip: {
-          include: {
-            route: true,
-            vehicle: true,
-            operator: true
-          }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    })
-
-    return NextResponse.json({ bookings })
-
-  } catch (error) {
-    console.error('Bookings fetch error:', error)
-    return NextResponse.json(
-      { 
-        error: 'Failed to fetch bookings',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

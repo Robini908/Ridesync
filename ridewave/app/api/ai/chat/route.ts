@@ -96,7 +96,7 @@ Respond naturally and helpfully to user queries. If appropriate, suggest 2-3 qui
     // Extract suggestions if the AI provided them
     const suggestionMatch = aiResponse.match(/SUGGESTIONS?:\s*(.*?)$/im)
     if (suggestionMatch) {
-      suggestions = suggestionMatch[1].split(',').map(s => s.trim()).slice(0, 3)
+      suggestions = suggestionMatch[1].split(',').map((s: string) => s.trim()).slice(0, 3)
       aiResponse = aiResponse.replace(/SUGGESTIONS?:\s*.*$/im, '').trim()
     }
 

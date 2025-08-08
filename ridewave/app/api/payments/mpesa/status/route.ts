@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Get M-Pesa transaction from database
-    const mpesaTransaction = await prisma.mpesaTransaction.findUnique({
+        const mpesaTransaction = await prisma.mPesaTransaction.findUnique({
       where: { checkoutRequestId },
       include: {
         booking: {
@@ -132,16 +132,15 @@ export async function GET(req: NextRequest) {
     }
 
     // If transaction is already completed or failed, return cached status
-    if (mpesaTransaction.status === 'COMPLETED' || mpesaTransaction.status === 'FAILED') {
+    if (mpesaTransaction.status === 'completed' || mpesaTransaction.status === 'failed') {
       return NextResponse.json({
         status: mpesaTransaction.status.toLowerCase(),
-        transactionId: mpesaTransaction.mpesaReceiptNumber,
+        transactionId: mpesaTransaction.transactionId,
         resultCode: mpesaTransaction.resultCode,
         resultDesc: mpesaTransaction.resultDesc,
         amount: mpesaTransaction.amount,
         phoneNumber: mpesaTransaction.phoneNumber,
-        transactionDate: mpesaTransaction.transactionDate,
-        lastUpdated: mpesaTransaction.updatedAt
+        lastUpdated: new Date().toISOString()
       })
     }
 
@@ -164,10 +163,9 @@ export async function GET(req: NextRequest) {
         transactionStatus = 'completed'
         updateData = {
           ...updateData,
-          status: 'COMPLETED',
-          mpesaReceiptNumber: statusResponse.MpesaReceiptNumber,
-          transactionDate: statusResponse.TransactionDate ? new Date(statusResponse.TransactionDate) : new Date(),
-          completedAt: new Date()
+          status: 'completed',
+          transactionId: statusResponse.MpesaReceiptNumber,
+          processedAt: new Date()
         }
 
         // Update booking status
@@ -175,8 +173,7 @@ export async function GET(req: NextRequest) {
           where: { id: mpesaTransaction.bookingId },
           data: {
             status: 'CONFIRMED',
-            paymentStatus: 'COMPLETED',
-            confirmedAt: new Date()
+            paymentStatus: 'COMPLETED'
           }
         })
 
@@ -189,9 +186,9 @@ export async function GET(req: NextRequest) {
           data: {
             status: 'COMPLETED',
             transactionId: statusResponse.MpesaReceiptNumber,
-            completedAt: new Date(),
+
             metadata: {
-              mpesaReceiptNumber: statusResponse.MpesaReceiptNumber,
+              transactionId: statusResponse.MpesaReceiptNumber,
               transactionDate: statusResponse.TransactionDate,
               checkoutRequestId
             }
@@ -221,8 +218,7 @@ export async function GET(req: NextRequest) {
         transactionStatus = 'failed'
         updateData = {
           ...updateData,
-          status: 'FAILED',
-          failedAt: new Date()
+          status: 'failed'
         }
 
         // Update booking status
@@ -254,7 +250,7 @@ export async function GET(req: NextRequest) {
           data: {
             userId: user.id,
             bookingId: mpesaTransaction.bookingId,
-            type: 'PAYMENT_FAILED',
+            type: 'SYSTEM_UPDATE',
             title: 'Payment Failed',
             message: `Your M-Pesa payment could not be processed: ${statusResponse.ResultDesc}`,
             data: {
@@ -268,7 +264,7 @@ export async function GET(req: NextRequest) {
       // If ResultCode is '1037' (timeout) or other pending states, keep as pending
 
       // Update M-Pesa transaction record
-      await prisma.mpesaTransaction.update({
+      await prisma.mPesaTransaction.update({
         where: { id: mpesaTransaction.id },
         data: updateData
       })
@@ -280,7 +276,7 @@ export async function GET(req: NextRequest) {
         resultDesc: statusResponse.ResultDesc,
         amount: mpesaTransaction.amount,
         phoneNumber: mpesaTransaction.phoneNumber,
-        transactionDate: statusResponse.TransactionDate || null,
+
         lastUpdated: new Date().toISOString()
       })
 
@@ -295,13 +291,12 @@ export async function GET(req: NextRequest) {
 
       if (timeDiff > timeoutMinutes) {
         // Mark as failed due to timeout
-        await prisma.mpesaTransaction.update({
+        await prisma.mPesaTransaction.update({
           where: { id: mpesaTransaction.id },
           data: {
-            status: 'FAILED',
-            resultCode: 'TIMEOUT',
-            resultDesc: 'Payment request timed out',
-            failedAt: new Date()
+            status: 'failed',
+            resultCode: 99999,
+            resultDesc: 'Payment request timed out'
           }
         })
 
@@ -319,7 +314,7 @@ export async function GET(req: NextRequest) {
           resultDesc: 'Payment request timed out',
           amount: mpesaTransaction.amount,
           phoneNumber: mpesaTransaction.phoneNumber,
-          transactionDate: null,
+
           lastUpdated: new Date().toISOString()
         })
       }
@@ -332,8 +327,7 @@ export async function GET(req: NextRequest) {
         resultDesc: 'Payment in progress',
         amount: mpesaTransaction.amount,
         phoneNumber: mpesaTransaction.phoneNumber,
-        transactionDate: null,
-        lastUpdated: mpesaTransaction.updatedAt
+        lastUpdated: new Date().toISOString()
       })
     }
 
