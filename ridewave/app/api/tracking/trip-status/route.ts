@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { updateTripStatus, type TripUpdate } from '@/lib/realtime'
 import { z } from 'zod'
+import { prisma } from '@/lib/prisma'
+import { createPermissionChecker, PERMISSIONS } from '@/lib/rbac'
+import { getTenantContext } from '@/lib/authz'
 
 const tripUpdateSchema = z.object({
   tripId: z.string(),
@@ -28,8 +31,54 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const validatedData = tripUpdateSchema.parse(body)
 
-    // TODO: Verify that the user has permission to update this trip's status
-    // This would typically check if the user is an operator or driver for this trip
+    // Permission & tenancy checks
+    const permissionChecker = await createPermissionChecker(userId)
+    if (!permissionChecker.hasAnyPermission([
+      PERMISSIONS.DRIVER_TRIP_STATUS_UPDATE,
+      PERMISSIONS.TRIP_MANAGE,
+      PERMISSIONS.BOOKING_MANAGE_ALL
+    ])) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions' },
+        { status: 403 }
+      )
+    }
+
+    const { tenantId } = await getTenantContext()
+
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: validatedData.tripId,
+        ...(tenantId ? { operator: { tenantId } } : {})
+      },
+      include: {
+        vehicle: { include: { assignedDriver: true } },
+        operator: true
+      }
+    })
+
+    if (!trip) {
+      return NextResponse.json(
+        { error: 'Trip not found' },
+        { status: 404 }
+      )
+    }
+
+    // Driver must be assigned to the trip OR user must be operator/admin for this operator
+    const user = await prisma.user.findUnique({ where: { externalId: userId } })
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    const isAssignedDriver = trip.vehicle.assignedDriver?.externalId === userId
+    const isOperatorOrAdmin = ['OPERATOR', 'ADMIN', 'SUPER_ADMIN', 'TENANT_ADMIN'].includes(user.role)
+
+    if (!isAssignedDriver && !isOperatorOrAdmin) {
+      return NextResponse.json(
+        { error: 'Not authorized to update this trip' },
+        { status: 403 }
+      )
+    }
 
     const result = await updateTripStatus(validatedData)
 

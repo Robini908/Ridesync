@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { createPermissionChecker, PERMISSIONS } from '@/lib/rbac'
 import { z } from 'zod'
+import { getTenantContext } from '@/lib/authz'
 
 // Validation schema for booking creation
 const createBookingSchema = z.object({
@@ -53,6 +54,12 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0')
 
     let whereClause: any = {}
+
+    // Tenant scoping: restrict to current tenant when available
+    const { tenantId } = await getTenantContext()
+    if (tenantId) {
+      whereClause.trip = { operator: { tenantId } }
+    }
 
     // Users can only see their own bookings unless they have special permissions
     if (!permissionChecker.hasPermission(PERMISSIONS.BOOKING_LIST)) {
@@ -175,9 +182,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify trip exists and get details
-    const trip = await prisma.trip.findUnique({
-      where: { id: validatedData.tripId },
+    // Verify trip exists and get details (tenant-scoped)
+    const { tenantId } = await getTenantContext()
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: validatedData.tripId,
+        ...(tenantId ? { operator: { tenantId } } : {})
+      },
       include: {
         vehicle: true,
         operator: true,

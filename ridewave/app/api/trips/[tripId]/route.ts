@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getTenantContext } from '@/lib/authz'
 
 export async function GET(
   req: NextRequest,
@@ -7,9 +8,14 @@ export async function GET(
 ) {
   try {
     const { tripId } = await params
+    const { tenantId } = await getTenantContext()
 
-    const trip = await prisma.trip.findUnique({
-      where: { id: tripId },
+    // Enforce tenant scoping: ensure the trip belongs to the current tenant if tenantId present
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: tripId,
+        ...(tenantId ? { operator: { tenantId } } : {})
+      },
       include: {
         vehicle: {
           select: {
@@ -69,10 +75,7 @@ export async function GET(
       )
     }
 
-    // Calculate occupied seats
     const occupiedSeats = trip.bookings.flatMap(booking => booking.seatNumbers)
-    
-    // Add occupied seats info to response
     const tripWithSeatInfo = {
       ...trip,
       totalSeats: trip.vehicle.seats,

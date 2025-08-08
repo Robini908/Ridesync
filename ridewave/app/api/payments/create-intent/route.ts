@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { createPaymentIntent, getCustomerPaymentMethods } from '@/lib/stripe'
 import { z } from 'zod'
+import { getTenantContext } from '@/lib/authz'
 
 const paymentIntentSchema = z.object({
   amount: z.number().min(1),
@@ -38,8 +39,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const booking = await prisma.booking.findUnique({
-      where: { id: validatedData.bookingId },
+    const { tenantId } = await getTenantContext()
+    const booking = await prisma.booking.findFirst({
+      where: {
+        id: validatedData.bookingId,
+        ...(tenantId ? { trip: { operator: { tenantId } } } : {})
+      },
       include: {
         trip: {
           include: {

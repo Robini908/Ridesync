@@ -4,7 +4,7 @@ import React, { useMemo, useRef, useState, useCallback, useEffect, Suspense } fr
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Html, OrbitControls, useGLTF, Text, Environment, PerspectiveCamera } from '@react-three/drei'
 import * as THREE from 'three'
-import { useGesture } from '@use-gesture/react'
+// import { useGesture } from '@use-gesture/react'
 import { PermissionChecker, PERMISSIONS } from '@/lib/rbac'
 
 // Types
@@ -56,7 +56,7 @@ const Seat3D: React.FC<Seat3DProps> = React.memo(({ seat, onSeatClick, isHighlig
   }, [seat.status, isHighlighted, canSelect])
 
   const handleClick = useCallback((e: any) => {
-    e.stopPropagation()
+    if (typeof e.stopPropagation === 'function') e.stopPropagation()
     if (canSelect && (seat.status === 'available' || seat.status === 'selected')) {
       onSeatClick(seat)
     }

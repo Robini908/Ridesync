@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { getTenantContext } from '@/lib/authz'
 
 const locationUpdateSchema = z.object({
   tripId: z.string(),
@@ -57,8 +58,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify trip exists and driver is assigned
-    const trip = await prisma.trip.findUnique({
-      where: { id: validatedData.tripId },
+    const { tenantId } = await getTenantContext()
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: validatedData.tripId,
+        ...(tenantId ? { operator: { tenantId } } : {})
+      },
       include: {
         vehicle: {
           include: {
@@ -217,8 +222,12 @@ export async function GET(req: NextRequest) {
     }
 
     // Check if user has permission to view this trip
-    const trip = await prisma.trip.findUnique({
-      where: { id: queryData.tripId },
+    const { tenantId } = await getTenantContext()
+    const trip = await prisma.trip.findFirst({
+      where: {
+        id: queryData.tripId,
+        ...(tenantId ? { operator: { tenantId } } : {})
+      },
       include: {
         bookings: {
           where: { userId: user.id },

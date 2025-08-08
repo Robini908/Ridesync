@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
 import { mpesaService } from '@/lib/mpesa'
 import { z } from 'zod'
+import { getTenantContext } from '@/lib/authz'
 
 const mpesaInitiateSchema = z.object({
   phoneNumber: z.string().regex(/^254[17]\d{8}$/, 'Invalid Kenyan phone number'),
@@ -94,8 +95,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const booking = await prisma.booking.findUnique({
-      where: { id: validatedData.bookingId },
+    const { tenantId } = await getTenantContext()
+    const booking = await prisma.booking.findFirst({
+      where: {
+        id: validatedData.bookingId,
+        ...(tenantId ? { trip: { operator: { tenantId } } } : {})
+      },
       include: {
         trip: {
           include: {
