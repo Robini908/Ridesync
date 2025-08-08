@@ -2,10 +2,6 @@
 > ridewave@0.1.0 dev
 > next dev
 
- ⚠ Warning: Found multiple lockfiles. Selecting /workspace/package-lock.json.
-   Consider removing the lockfiles at:
-   * /workspace/ridewave/package-lock.json
-
    ▲ Next.js 15.4.6
    - Local:        http://localhost:3000
    - Network:      http://172.30.0.2:3000
@@ -14,18 +10,7 @@
      · staleTimes
 
  ✓ Starting...
- ✓ Ready in 1169ms
- ○ Compiling /middleware ...
- ✓ Compiled /middleware in 739ms (218 modules)
+ ✓ Ready in 1203ms
  ○ Compiling / ...
-<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (166kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
- ✓ Compiled / in 4.5s (1354 modules)
- GET / 200 in 4994ms
- ⨯ Error [ReferenceError]: exports is not defined
-    at <unknown> (.next/server/vendors.js:9)
-    at <unknown> (.next/server/vendors.js:9:1)
- ○ Compiling /_error ...
- ✓ Compiled /_error in 1440ms (1681 modules)
- ⨯ Error [ReferenceError]: exports is not defined
-    at <unknown> (.next/server/vendors.js:9)
-    at <unknown> (.next/server/vendors.js:9:1)
+ ✓ Compiled / in 4.9s (1354 modules)
+ GET / 200 in 5346ms
