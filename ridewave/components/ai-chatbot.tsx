@@ -27,8 +27,8 @@ interface ChatbotProps {
   onToggle?: () => void
 }
 
-export function AIChatbot({ className, isOpen: controlledOpen, onToggle }: ChatbotProps) {
-  const [isOpen, setIsOpen] = useState(controlledOpen ?? false)
+export function AIChatbot({ className, isOpen: controlledIsOpen, onToggle }: ChatbotProps) {
+  const [isOpen, setIsOpen] = useState(controlledIsOpen ?? false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     {

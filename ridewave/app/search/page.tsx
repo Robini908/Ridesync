@@ -65,27 +65,190 @@ export default function SearchPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [selectedTrip, setSelectedTrip] = useState<Trip | undefined>(undefined)
 
+  // Mock data for demonstration
+  const mockTrips: Trip[] = [
+    {
+      id: '1',
+      route: {
+        fromCity: 'Lagos',
+        toCity: 'Abuja',
+        fromCoordinates: { lat: 6.5244, lng: 3.3792 },
+        toCoordinates: { lat: 9.0579, lng: 7.4951 },
+        distanceKm: 750,
+        estimatedDuration: 480
+      },
+      vehicle: {
+        name: 'Executive Coach',
+        type: 'Bus',
+        amenities: ['WiFi', 'AC', 'Reclining Seats', 'Entertainment'],
+        seats: 45,
+        images: ['/api/placeholder/400/300']
+      },
+      operator: {
+        name: 'Premium Transport',
+        rating: 4.8,
+        totalReviews: 324
+      },
+      departureDate: '2024-01-15',
+      departureTime: '08:00',
+      arrivalTime: '16:00',
+      currentPriceCents: 15000,
+      availableSeats: 12,
+      status: 'available'
+    },
+    {
+      id: '2',
+      route: {
+        fromCity: 'Lagos',
+        toCity: 'Ibadan',
+        fromCoordinates: { lat: 6.5244, lng: 3.3792 },
+        toCoordinates: { lat: 7.3775, lng: 3.9470 },
+        distanceKm: 145,
+        estimatedDuration: 120
+      },
+      vehicle: {
+        name: 'Luxury Minibus',
+        type: 'Minibus',
+        amenities: ['AC', 'USB Charging', 'WiFi'],
+        seats: 18,
+        images: ['/api/placeholder/400/300']
+      },
+      operator: {
+        name: 'Swift Travel',
+        rating: 4.6,
+        totalReviews: 189
+      },
+      departureDate: '2024-01-15',
+      departureTime: '10:30',
+      arrivalTime: '12:30',
+      currentPriceCents: 5000,
+      availableSeats: 8,
+      status: 'available'
+    },
+    {
+      id: '3',
+      route: {
+        fromCity: 'Abuja',
+        toCity: 'Kano',
+        fromCoordinates: { lat: 9.0579, lng: 7.4951 },
+        toCoordinates: { lat: 12.0022, lng: 8.5920 },
+        distanceKm: 350,
+        estimatedDuration: 240
+      },
+      vehicle: {
+        name: 'Standard Bus',
+        type: 'Bus',
+        amenities: ['AC', 'Comfortable Seats'],
+        seats: 40,
+        images: ['/api/placeholder/400/300']
+      },
+      operator: {
+        name: 'Northern Express',
+        rating: 4.3,
+        totalReviews: 156
+      },
+      departureDate: '2024-01-15',
+      departureTime: '14:00',
+      arrivalTime: '18:00',
+      currentPriceCents: 8000,
+      availableSeats: 15,
+      status: 'available'
+    },
+    {
+      id: '4',
+      route: {
+        fromCity: 'Port Harcourt',
+        toCity: 'Lagos',
+        fromCoordinates: { lat: 4.8156, lng: 7.0498 },
+        toCoordinates: { lat: 6.5244, lng: 3.3792 },
+        distanceKm: 435,
+        estimatedDuration: 300
+      },
+      vehicle: {
+        name: 'Comfort Shuttle',
+        type: 'Minibus',
+        amenities: ['AC', 'WiFi', 'Refreshments'],
+        seats: 14,
+        images: ['/api/placeholder/400/300']
+      },
+      operator: {
+        name: 'Coastal Express',
+        rating: 4.5,
+        totalReviews: 203
+      },
+      departureDate: '2024-01-15',
+      departureTime: '06:00',
+      arrivalTime: '11:00',
+      currentPriceCents: 12000,
+      availableSeats: 6,
+      status: 'available'
+    }
+  ]
+
   async function handleSearch() {
     setLoading(true)
     try {
-      const queryParams = new URLSearchParams({
-        from: searchParams.from,
-        to: searchParams.to,
-        date: searchParams.date,
-        passengers: searchParams.passengers,
-        vehicleType: searchParams.vehicleType,
-        priceRange: filters.priceRange.join(','),
-        amenities: filters.amenities.join(','),
-        departureTime: filters.departureTime,
-        rating: filters.rating.toString(),
-      })
+      // Simulate API delay
+      await new Promise(resolve => setTimeout(resolve, 1000))
       
-      const res = await fetch(`/api/search?${queryParams}`)
-      const data = await res.json()
-      setResults(data.trips || [])
-      setAiRecommendations(data.aiRecommendations || [])
+      // Filter mock data based on search criteria
+      let filteredResults = mockTrips
+      
+      if (searchParams.from) {
+        filteredResults = filteredResults.filter(trip => 
+          trip.route.fromCity.toLowerCase().includes(searchParams.from.toLowerCase())
+        )
+      }
+      
+      if (searchParams.to) {
+        filteredResults = filteredResults.filter(trip => 
+          trip.route.toCity.toLowerCase().includes(searchParams.to.toLowerCase())
+        )
+      }
+      
+      if (searchParams.vehicleType) {
+        filteredResults = filteredResults.filter(trip => 
+          trip.vehicle.type.toLowerCase() === searchParams.vehicleType.toLowerCase()
+        )
+      }
+      
+      // Apply price filters
+      const minPrice = filters.priceRange[0] * 100 // Convert to cents
+      const maxPrice = filters.priceRange[1] * 100
+      filteredResults = filteredResults.filter(trip => 
+        trip.currentPriceCents >= minPrice && trip.currentPriceCents <= maxPrice
+      )
+      
+      // Apply rating filter
+      if (filters.rating > 0) {
+        filteredResults = filteredResults.filter(trip => 
+          trip.operator.rating >= filters.rating
+        )
+      }
+      
+      // Apply amenities filter
+      if (filters.amenities.length > 0) {
+        filteredResults = filteredResults.filter(trip => 
+          filters.amenities.every(amenity => 
+            trip.vehicle.amenities.some(vehicleAmenity => 
+              vehicleAmenity.toLowerCase().includes(amenity.toLowerCase())
+            )
+          )
+        )
+      }
+      
+      setResults(filteredResults)
+      
+      // Mock AI recommendations
+      const recommendations = filteredResults.slice(0, 2).map(trip => ({
+        reason: `Best ${trip.vehicle.type.toLowerCase()} option with ${trip.operator.rating} rating`,
+        trip
+      }))
+      setAiRecommendations(recommendations)
+      
     } catch (error) {
       console.error('Search error:', error)
+      setResults([])
     } finally {
       setLoading(false)
     }
