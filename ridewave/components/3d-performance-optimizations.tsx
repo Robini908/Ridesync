@@ -413,11 +413,4 @@ export const use3DMemoryManagement = () => {
   return { cleanupUnusedResources }
 }
 
-// Export performance optimization utilities
-export {
-  Performance3DMonitor,
-  GeometryPool,
-  SeatLODManager,
-  Performance3DSettings,
-  SeatUpdateBatcher
-}
+// All classes are already exported at their declaration

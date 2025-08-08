@@ -199,10 +199,10 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
       where: { id: tenantSubscription.id },
       data: {
         status,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+        currentPeriodStart: new Date((subscription as any).current_period_start * 1000),
+        currentPeriodEnd: new Date((subscription as any).current_period_end * 1000),
+        cancelAtPeriodEnd: (subscription as any).cancel_at_period_end,
+        canceledAt: (subscription as any).canceled_at ? new Date((subscription as any).canceled_at * 1000) : null,
       }
     });
 
@@ -251,11 +251,11 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   try {
-    if (!invoice.subscription) return;
+    if (!(invoice as any).subscription) return;
 
     // Find tenant by subscription ID
     const tenantSubscription = await prisma.tenantSubscription.findUnique({
-      where: { stripeSubscriptionId: invoice.subscription as string },
+      where: { stripeSubscriptionId: (invoice as any).subscription as string },
       include: { tenant: true }
     });
 
@@ -278,7 +278,7 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
       tenantSubscription.tier
     );
 
-    console.log(`Invoice payment succeeded for subscription: ${invoice.subscription}`);
+    console.log(`Invoice payment succeeded for subscription: ${(invoice as any).subscription}`);
 
   } catch (error) {
     console.error("Error handling invoice payment succeeded:", error);
@@ -287,11 +287,11 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
 
 async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   try {
-    if (!invoice.subscription) return;
+    if (!(invoice as any).subscription) return;
 
     // Find tenant by subscription ID
     const tenantSubscription = await prisma.tenantSubscription.findUnique({
-      where: { stripeSubscriptionId: invoice.subscription as string },
+      where: { stripeSubscriptionId: (invoice as any).subscription as string },
       include: { tenant: true }
     });
 
@@ -329,7 +329,7 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
       }
     }
 
-    console.log(`Invoice payment failed for subscription: ${invoice.subscription}`);
+    console.log(`Invoice payment failed for subscription: ${(invoice as any).subscription}`);
 
   } catch (error) {
     console.error("Error handling invoice payment failed:", error);
@@ -358,7 +358,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
           currency: paymentIntent.currency.toUpperCase(),
           paymentMethod: "stripe",
           paymentIntentId: paymentIntent.id,
-          transactionId: paymentIntent.charges.data[0]?.id,
+          transactionId: (paymentIntent as any).charges?.data[0]?.id,
           status: "COMPLETED"
         }
       });
@@ -391,8 +391,8 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
               bookingReference: booking.confirmationCode,
               paidAmount: `$${(paymentIntent.amount / 100).toFixed(2)}`,
               paymentMethod: "Credit Card",
-              transactionId: paymentIntent.charges.data[0]?.id || paymentIntent.id,
-              receiptUrl: paymentIntent.charges.data[0]?.receipt_url || ""
+              transactionId: (paymentIntent as any).charges?.data[0]?.id || paymentIntent.id,
+              receiptUrl: (paymentIntent as any).charges?.data[0]?.receipt_url || ""
             }
           );
         } catch (emailError) {

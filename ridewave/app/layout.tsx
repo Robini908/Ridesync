@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 }
 
 const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-const isValidClerk = !!pk && /^pk_(test|live)_[A-Za-z0-9]+/.test(pk) && !pk.includes('xxxxxxxx')
+const isValidClerk = !!pk && /^pk_(test|live)_[A-Za-z0-9]+/.test(pk) && !pk.includes('xxxxxxxx') && !pk.includes('your-clerk-publishable-key')
 
 export default function RootLayout({
   children,
@@ -21,7 +21,7 @@ export default function RootLayout({
 }) {
   const app = (
     <html lang="en" suppressHydrationWarning>
-      <body>
+      <body suppressHydrationWarning>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <ReactQueryProvider>
             <ChatbotProvider>

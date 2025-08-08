@@ -211,7 +211,7 @@ export default function BookingPage() {
   }
 
   const handlePaymentSuccess = (paymentData: any) => {
-    setBooking(prev => ({
+    setBooking((prev: any) => ({
       ...prev,
       paymentStatus: 'COMPLETED',
       paymentData

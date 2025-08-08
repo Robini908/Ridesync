@@ -74,7 +74,10 @@ export default function SearchPage() {
         date: searchParams.date,
         passengers: searchParams.passengers,
         vehicleType: searchParams.vehicleType,
-        ...filters,
+        priceRange: filters.priceRange.join(','),
+        amenities: filters.amenities.join(','),
+        departureTime: filters.departureTime,
+        rating: filters.rating.toString(),
       })
       
       const res = await fetch(`/api/search?${queryParams}`)
@@ -334,9 +337,9 @@ export default function SearchPage() {
             
             <TabsContent value="map" className="mt-6">
               <InteractiveMap
-                trips={results}
-                selectedTrip={selectedTrip}
-                onTripSelect={setSelectedTrip}
+                trips={results as any}
+                selectedTrip={selectedTrip as any}
+                onTripSelect={(trip: any) => setSelectedTrip(trip)}
                 height="500px"
                 showControls={true}
                 showRoutes={true}
