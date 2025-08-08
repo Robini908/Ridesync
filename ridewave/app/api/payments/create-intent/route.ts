@@ -1,0 +1,176 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@clerk/nextjs/server'
+import { prisma } from '@/lib/prisma'
+import { createPaymentIntent, getCustomerPaymentMethods, type PaymentIntentData } from '@/lib/stripe'
+import { z } from 'zod'
+
+const createIntentSchema = z.object({
+  amount: z.number().min(50), // Minimum $0.50
+  currency: z.string().min(3).max(3),
+  bookingId: z.string(),
+  description: z.string(),
+  customerEmail: z.string().email(),
+  metadata: z.record(z.string()).optional()
+})
+
+export async function POST(req: NextRequest) {
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      )
+    }
+
+    const body = await req.json()
+    const validatedData = createIntentSchema.parse(body)
+
+    // Verify booking exists and belongs to user
+    const booking = await prisma.booking.findUnique({
+      where: { id: validatedData.bookingId },
+      include: {
+        user: true,
+        trip: {
+          include: {
+            route: true,
+            operator: true
+          }
+        }
+      }
+    })
+
+    if (!booking) {
+      return NextResponse.json(
+        { error: 'Booking not found' },
+        { status: 404 }
+      )
+    }
+
+    if (booking.user.externalId !== userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized access to booking' },
+        { status: 403 }
+      )
+    }
+
+    // Check if booking is already paid
+    if (booking.paymentStatus === 'COMPLETED') {
+      return NextResponse.json(
+        { error: 'Booking is already paid' },
+        { status: 400 }
+      )
+    }
+
+    // Verify amount matches booking total
+    if (validatedData.amount !== booking.totalPriceCents) {
+      return NextResponse.json(
+        { error: 'Payment amount does not match booking total' },
+        { status: 400 }
+      )
+    }
+
+    // Create payment intent data
+    const paymentIntentData: PaymentIntentData = {
+      amount: validatedData.amount,
+      currency: validatedData.currency,
+      bookingId: validatedData.bookingId,
+      userId,
+      customerEmail: validatedData.customerEmail,
+      description: validatedData.description,
+      metadata: {
+        tripRoute: `${booking.trip.route.fromCity} → ${booking.trip.route.toCity}`,
+        operatorName: booking.trip.operator.name,
+        departureDate: booking.trip.departureDate,
+        seatNumbers: booking.seatNumbers.join(', '),
+        ...validatedData.metadata
+      }
+    }
+
+    // Create payment intent
+    const paymentIntent = await createPaymentIntent(paymentIntentData)
+
+    // Get customer's saved payment methods
+    let paymentMethods: any[] = []
+    try {
+      const customerId = paymentIntent.customer as string
+      if (customerId) {
+        const stripePaymentMethods = await getCustomerPaymentMethods(customerId)
+        paymentMethods = stripePaymentMethods.map(pm => ({
+          id: pm.id,
+          type: pm.type,
+          card: pm.card ? {
+            brand: pm.card.brand,
+            last4: pm.card.last4,
+            exp_month: pm.card.exp_month,
+            exp_year: pm.card.exp_year
+          } : undefined,
+          isDefault: false // TODO: Implement default payment method logic
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching payment methods:', error)
+      // Continue without payment methods
+    }
+
+    // Update booking with payment intent ID
+    await prisma.booking.update({
+      where: { id: validatedData.bookingId },
+      data: {
+        paymentIntentId: paymentIntent.id,
+        paymentStatus: 'PENDING'
+      }
+    })
+
+    // Create payment record
+    await prisma.payment.create({
+      data: {
+        bookingId: validatedData.bookingId,
+        amountCents: validatedData.amount,
+        currency: validatedData.currency,
+        paymentMethod: 'stripe',
+        paymentIntentId: paymentIntent.id,
+        status: 'PENDING',
+        metadata: paymentIntentData.metadata
+      }
+    })
+
+    return NextResponse.json({
+      success: true,
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      paymentMethods,
+      booking: {
+        id: booking.id,
+        confirmationCode: booking.confirmationCode,
+        totalAmount: booking.totalPriceCents,
+        trip: {
+          route: booking.trip.route,
+          departureDate: booking.trip.departureDate,
+          departureTime: booking.trip.departureTime
+        }
+      }
+    })
+
+  } catch (error) {
+    console.error('Payment intent creation error:', error)
+    
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { 
+          error: 'Invalid payment data',
+          details: error.errors
+        },
+        { status: 400 }
+      )
+    }
+
+    return NextResponse.json(
+      { 
+        error: 'Failed to create payment intent',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    )
+  }
+}

@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { SiteHeader } from '@/components/site-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Calendar, MapPin, Users, Clock, Star, Wifi, Zap, Car, Filter } from 'lucide-react'
+import { InteractiveMap } from '@/components/interactive-map'
 import Link from 'next/link'
 
 interface Trip {
@@ -62,6 +63,7 @@ export default function SearchPage() {
   const [results, setResults] = useState<Trip[]>([])
   const [aiRecommendations, setAiRecommendations] = useState<any[]>([])
   const [showFilters, setShowFilters] = useState(false)
+  const [selectedTrip, setSelectedTrip] = useState<Trip | undefined>(undefined)
 
   async function handleSearch() {
     setLoading(true)
@@ -331,17 +333,15 @@ export default function SearchPage() {
             </TabsContent>
             
             <TabsContent value="map" className="mt-6">
-              <Card className="border-zinc-800 bg-zinc-900/50">
-                <CardContent className="p-0">
-                  <div className="h-96 bg-zinc-800 rounded-lg flex items-center justify-center">
-                    <div className="text-center text-zinc-400">
-                      <MapPin className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>Interactive map will be displayed here</p>
-                      <p className="text-sm mt-2">Mapbox integration coming soon</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <InteractiveMap
+                trips={results}
+                selectedTrip={selectedTrip}
+                onTripSelect={setSelectedTrip}
+                height="500px"
+                showControls={true}
+                showRoutes={true}
+                centerOnTrips={true}
+              />
             </TabsContent>
           </Tabs>
         </div>

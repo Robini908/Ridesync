@@ -15,6 +15,7 @@ import {
   Phone, Mail, Seat, ArrowLeft
 } from 'lucide-react'
 import { useUser } from '@clerk/nextjs'
+import { StripePayment } from '@/components/stripe-payment'
 import Link from 'next/link'
 
 interface Trip {
@@ -450,12 +451,26 @@ export default function BookingPage() {
                         <span className="text-sm">Your payment is secured with 256-bit SSL encryption</span>
                       </div>
 
-                      {/* Payment form would go here - Stripe integration */}
-                      <div className="p-6 border border-zinc-700 rounded-lg">
-                        <p className="text-center text-zinc-400">
-                          Stripe payment integration will be implemented here
-                        </p>
-                      </div>
+                      <StripePayment
+                        amount={trip.currentPriceCents * selectedSeats.length}
+                        currency="USD"
+                        bookingId="temp-booking-id" // This would be the actual booking ID
+                        description={`${trip.route.fromCity} → ${trip.route.toCity} - ${selectedSeats.length} seat(s)`}
+                        customerEmail={bookingForm.passengerEmail}
+                        onSuccess={(paymentIntent) => {
+                          console.log('Payment successful:', paymentIntent)
+                          setCurrentStep(4)
+                        }}
+                        onError={(error) => {
+                          console.error('Payment error:', error)
+                          alert(`Payment failed: ${error}`)
+                        }}
+                        metadata={{
+                          tripId: tripId,
+                          seatNumbers: selectedSeats.join(','),
+                          passengerName: bookingForm.passengerName
+                        }}
+                      />
 
                       <div className="flex gap-4">
                         <Button 
