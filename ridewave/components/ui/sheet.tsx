@@ -20,10 +20,16 @@ const SheetOverlay = React.forwardRef<
 ))
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
 
+export type SheetSide = 'left' | 'right' | 'top' | 'bottom'
+
+type SheetContentProps = React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
+  side?: SheetSide
+}
+
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>
->(({ className, side = "right", children, ...props }: any, ref) => (
+  SheetContentProps
+>(({ className, side = "right", children, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content

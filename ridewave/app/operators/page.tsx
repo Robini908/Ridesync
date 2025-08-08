@@ -1,8 +1,21 @@
+import { SiteHeader } from '@/components/site-header'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+
 export default function OperatorsPage() {
   return (
-    <main className="container-padding py-8">
-      <h1 className="text-2xl font-semibold">For Operators</h1>
-      <p className="text-zinc-400 mt-2">Apply to list your fleet, manage schedules, and access AI insights.</p>
+    <main>
+      <SiteHeader />
+      <section className="container-padding py-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>For Operators</CardTitle>
+            <CardDescription>Apply to list your fleet, manage schedules, and access AI insights.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* TODO: add operator application form using shadcn/ui Form */}
+          </CardContent>
+        </Card>
+      </section>
     </main>
   )
 }
