@@ -23,10 +23,12 @@ interface Message {
 
 interface ChatbotProps {
   className?: string
+  isOpen?: boolean
+  onToggle?: () => void
 }
 
-export function AIChatbot({ className }: ChatbotProps) {
-  const [isOpen, setIsOpen] = useState(false)
+export function AIChatbot({ className, isOpen: controlledIsOpen, onToggle }: ChatbotProps) {
+  const [isOpen, setIsOpen] = useState(controlledIsOpen ?? false)
   const [isMinimized, setIsMinimized] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -230,7 +232,7 @@ export function AIChatbot({ className }: ChatbotProps) {
     }
 
     // Update conversation context
-    setConversationContext(prev => ({
+    setConversationContext((prev: any) => ({
       ...prev,
       lastIntent: lowerMessage.includes('trip') ? 'trip_search' : 
                   lowerMessage.includes('booking') ? 'booking_management' :

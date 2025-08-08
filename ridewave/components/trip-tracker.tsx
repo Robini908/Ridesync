@@ -73,34 +73,6 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
   const retryCountRef = useRef(0)
   const maxRetries = 5
 
-  // Fetch initial trip data
-  useEffect(() => {
-    fetchTripData()
-  }, [fetchTripData])
-
-  // Set up WebSocket connection for real-time updates
-  useEffect(() => {
-    if (user && tripId) {
-      connectWebSocket()
-      return () => {
-        if (wsRef.current) {
-          wsRef.current.close()
-        }
-      }
-    }
-  }, [user, tripId, connectWebSocket])
-
-  // Auto-refresh every 30 seconds as fallback
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!isConnected) {
-        fetchTripData()
-      }
-    }, 30000)
-
-    return () => clearInterval(interval)
-  }, [isConnected, fetchTripData])
-
   const fetchTripData = useCallback(async () => {
     try {
       const response = await fetch(`/api/tracking/trip-status?tripId=${tripId}`)
@@ -172,6 +144,34 @@ export function TripTracker({ tripId, bookingId, className = "" }: TripTrackerPr
       setIsConnected(false)
     }
   }, [user?.id, tripId])
+
+  // Fetch initial trip data
+  useEffect(() => {
+    fetchTripData()
+  }, [fetchTripData])
+
+  // Set up WebSocket connection for real-time updates
+  useEffect(() => {
+    if (user && tripId) {
+      connectWebSocket()
+      return () => {
+        if (wsRef.current) {
+          wsRef.current.close()
+        }
+      }
+    }
+  }, [user, tripId, connectWebSocket])
+
+  // Auto-refresh every 30 seconds as fallback
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isConnected) {
+        fetchTripData()
+      }
+    }, 30000)
+
+    return () => clearInterval(interval)
+  }, [isConnected, fetchTripData])
 
   const handleRealTimeUpdate = (message: any) => {
     const update: TripUpdate = message.data

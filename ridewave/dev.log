@@ -1,0 +1,29 @@
+
+> ridewave@0.1.0 dev
+> next dev
+
+ ⚠ Warning: Found multiple lockfiles. Selecting /workspace/package-lock.json.
+   Consider removing the lockfiles at:
+   * /workspace/ridewave/package-lock.json
+
+   ▲ Next.js 15.4.6
+   - Local:        http://localhost:3000
+   - Network:      http://172.30.0.2:3000
+   - Environments: .env.local, .env
+   - Experiments (use with caution):
+     · staleTimes
+
+ ✓ Starting...
+ ✓ Ready in 1260ms
+ ✓ Compiled /middleware in 413ms (108 modules)
+ ○ Compiling / ...
+ ✓ Compiled / in 4.3s (1301 modules)
+ GET / 200 in 4765ms
+ ⨯ Error [ReferenceError]: exports is not defined
+    at <unknown> (.next/server/vendors.js:9)
+    at <unknown> (.next/server/vendors.js:9:1)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1567ms (1628 modules)
+ ⨯ Error [ReferenceError]: exports is not defined
+    at <unknown> (.next/server/vendors.js:9)
+    at <unknown> (.next/server/vendors.js:9:1)

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 }
 
 const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-const isValidClerk = !!pk && /^pk_(test|live)_[A-Za-z0-9]+/.test(pk) && !pk.includes('xxxxxxxx') && !pk.includes('your-clerk-publishable-key')
+const isValidClerk = !!pk && /^pk_(test|live)_[A-Za-z0-9]+/.test(pk) && !pk.includes('xxxxxxxx') && !pk.includes('your-clerk-publishable-key') && !pk.includes('placeholder')
 
 export default function RootLayout({
   children,
