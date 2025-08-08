@@ -71,7 +71,7 @@ class MPesaService {
     try {
       // Check if current token is still valid
       if (this.accessToken && this.tokenExpiry && new Date() < this.tokenExpiry) {
-        return this.accessToken
+        return this.accessToken!
       }
 
       const auth = Buffer.from(
@@ -96,7 +96,7 @@ class MPesaService {
       // Token expires in 1 hour, set expiry 5 minutes earlier for safety
       this.tokenExpiry = new Date(Date.now() + (data.expires_in - 300) * 1000)
 
-      return this.accessToken
+      return this.accessToken!
     } catch (error) {
       console.error('Error generating M-Pesa access token:', error)
       throw new Error('Failed to generate M-Pesa access token')
