@@ -14,16 +14,13 @@
      · staleTimes
 
  ✓ Starting...
- ✓ Ready in 1260ms
- ✓ Compiled /middleware in 413ms (108 modules)
- ○ Compiling / ...
- ✓ Compiled / in 4.3s (1301 modules)
- GET / 200 in 4765ms
+ ✓ Ready in 1278ms
+ ✓ Compiled /middleware in 412ms (108 modules)
+ ○ Compiling /search ...
+ ✓ Compiled /search in 4.3s (1342 modules)
+ GET /search 200 in 4737ms
  ⨯ Error [ReferenceError]: exports is not defined
     at <unknown> (.next/server/vendors.js:9)
     at <unknown> (.next/server/vendors.js:9:1)
  ○ Compiling /_error ...
- ✓ Compiled /_error in 1567ms (1628 modules)
- ⨯ Error [ReferenceError]: exports is not defined
-    at <unknown> (.next/server/vendors.js:9)
-    at <unknown> (.next/server/vendors.js:9:1)
+ ✓ Compiled /_error in 1432ms (1669 modules)
