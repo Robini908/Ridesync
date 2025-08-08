@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 export default function SearchPage() {
   const [q, setQ] = useState('')
@@ -20,13 +21,12 @@ export default function SearchPage() {
     <main className="container-padding py-8">
       <h1 className="text-2xl font-semibold">Search trips</h1>
       <div className="mt-4 flex gap-2">
-        <input
+        <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="City or route"
-          className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2"
         />
-        <Button onClick={onSearch} disabled={loading}>{loading ? 'Searching…' : 'Search'}</Button>
+        <Button onClick={onSearch} disabled={loading} variant="accent">{loading ? 'Searching…' : 'Search'}</Button>
       </div>
       <ul className="mt-6 space-y-3">
         {results.map((t) => (
