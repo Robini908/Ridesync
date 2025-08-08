@@ -5,6 +5,11 @@
 /.pnp
 .pnp.js
 
+# ignore nested project artifacts
+/ridewave/node_modules
+/ridewave/.next
+/ridewave/out
+
 # testing
 /coverage
 
