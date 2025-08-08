@@ -1,388 +1,429 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { headers } from 'next/headers'
-import { prisma } from '@/lib/prisma'
-import { verifyWebhookSignature } from '@/lib/stripe'
-import Stripe from 'stripe'
+import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
+import Stripe from "stripe";
+import { prisma } from "@/lib/prisma";
+import { SubscriptionService } from "@/lib/subscription";
+import { SubscriptionTier, SubscriptionStatus } from "@prisma/client";
+import { EmailService } from "@/lib/email";
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: "2024-12-18.acacia",
+});
 
-export async function POST(req: NextRequest) {
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.text()
-    const headersList = headers()
-    const signature = headersList.get('stripe-signature')
+    const body = await request.text();
+    const headersList = await headers();
+    const signature = headersList.get("stripe-signature");
 
     if (!signature) {
-      console.error('Missing Stripe signature')
       return NextResponse.json(
-        { error: 'Missing signature' },
+        { error: "Missing stripe-signature header" },
         { status: 400 }
-      )
+      );
     }
 
-    // Verify webhook signature
-    let event: Stripe.Event
+    let event: Stripe.Event;
+
     try {
-      event = verifyWebhookSignature(body, signature, webhookSecret)
+      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (error) {
-      console.error('Webhook signature verification failed:', error)
+      console.error("Webhook signature verification failed:", error);
       return NextResponse.json(
-        { error: 'Invalid signature' },
+        { error: "Webhook signature verification failed" },
         { status: 400 }
-      )
+      );
     }
 
-    console.log(`Processing webhook event: ${event.type}`)
+    console.log("Stripe webhook event:", event.type);
 
-    // Handle different event types
+    // Handle the event
     switch (event.type) {
-      case 'payment_intent.succeeded':
-        await handlePaymentSucceeded(event.data.object as Stripe.PaymentIntent)
-        break
+      case "checkout.session.completed":
+        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
 
-      case 'payment_intent.payment_failed':
-        await handlePaymentFailed(event.data.object as Stripe.PaymentIntent)
-        break
+      case "customer.subscription.created":
+        await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
+        break;
 
-      case 'payment_intent.canceled':
-        await handlePaymentCanceled(event.data.object as Stripe.PaymentIntent)
-        break
+      case "customer.subscription.updated":
+        await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+        break;
 
-      case 'payment_intent.requires_action':
-        await handlePaymentRequiresAction(event.data.object as Stripe.PaymentIntent)
-        break
+      case "customer.subscription.deleted":
+        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        break;
 
-      case 'payment_method.attached':
-        await handlePaymentMethodAttached(event.data.object as Stripe.PaymentMethod)
-        break
+      case "invoice.payment_succeeded":
+        await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice);
+        break;
 
-      case 'customer.created':
-        await handleCustomerCreated(event.data.object as Stripe.Customer)
-        break
+      case "invoice.payment_failed":
+        await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+        break;
 
-      case 'invoice.payment_succeeded':
-        await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice)
-        break
+      case "payment_intent.succeeded":
+        await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
+        break;
 
-      case 'charge.dispute.created':
-        await handleChargeDisputeCreated(event.data.object as Stripe.Dispute)
-        break
+      case "payment_intent.payment_failed":
+        await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
+        break;
 
       default:
-        console.log(`Unhandled event type: ${event.type}`)
+        console.log(`Unhandled event type: ${event.type}`);
     }
 
-    return NextResponse.json({ received: true })
+    return NextResponse.json({ received: true });
 
   } catch (error) {
-    console.error('Webhook processing error:', error)
+    console.error("Webhook error:", error);
     return NextResponse.json(
-      { error: 'Webhook processing failed' },
+      { error: "Webhook handler failed" },
       { status: 500 }
-    )
+    );
   }
 }
 
-// Handle successful payment
-async function handlePaymentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
   try {
-    const bookingId = paymentIntent.metadata.bookingId
-    if (!bookingId) {
-      console.error('No booking ID in payment intent metadata')
-      return
+    const { metadata } = session;
+    
+    if (!metadata?.tenantId) {
+      console.error("No tenantId in checkout session metadata");
+      return;
     }
 
-    // Update booking status
-    const booking = await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        status: 'CONFIRMED',
-        paymentStatus: 'COMPLETED'
-      },
+    const { tenantId, tier, billingCycle } = metadata;
+
+    // Get the subscription from Stripe
+    const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+    
+    await SubscriptionService.handleSubscriptionSuccess(
+      tenantId,
+      subscription.id,
+      tier as SubscriptionTier,
+      billingCycle,
+      subscription.customer as string,
+      subscription.items.data[0].price.id
+    );
+
+    // Send subscription upgrade email
+    const emailService = new EmailService();
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
       include: {
-        user: true,
-        trip: {
-          include: {
-            route: true,
-            operator: true
+        users: {
+          where: {
+            role: { in: ["TENANT_ADMIN", "ADMIN"] }
           }
         }
       }
-    })
+    });
 
-    // Update payment record
-    await prisma.payment.updateMany({
-      where: {
-        bookingId: bookingId,
-        paymentIntentId: paymentIntent.id
-      },
-      data: {
-        status: 'COMPLETED',
-        transactionId: paymentIntent.latest_charge as string
-      }
-    })
-
-    // Create success notification
-    await prisma.notification.create({
-      data: {
-        userId: booking.user.id,
-        bookingId: booking.id,
-        type: 'PAYMENT_SUCCESS',
-        title: 'Payment Successful',
-        message: `Your payment of $${(paymentIntent.amount / 100).toFixed(2)} has been processed successfully. Your booking is confirmed!`,
-        data: {
-          paymentIntentId: paymentIntent.id,
-          amount: paymentIntent.amount,
-          currency: paymentIntent.currency,
-          confirmationCode: booking.confirmationCode
+    if (tenant) {
+      for (const user of tenant.users) {
+        try {
+          await emailService.sendEmail(
+            tenantId,
+            "subscription_upgrade",
+            user.email,
+            {
+              firstName: user.firstName || "there",
+              newTier: tier,
+              billingUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing`
+            }
+          );
+        } catch (emailError) {
+          console.error("Failed to send subscription upgrade email:", emailError);
         }
       }
-    })
-
-    // Update user loyalty points (10 points per dollar spent)
-    const pointsEarned = Math.floor(paymentIntent.amount / 10) // 10 points per dollar
-    await prisma.user.update({
-      where: { id: booking.user.id },
-      data: {
-        loyaltyPoints: {
-          increment: pointsEarned
-        }
-      }
-    })
-
-    console.log(`Payment succeeded for booking ${bookingId}`)
-
-  } catch (error) {
-    console.error('Error handling payment success:', error)
-  }
-}
-
-// Handle failed payment
-async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
-  try {
-    const bookingId = paymentIntent.metadata.bookingId
-    if (!bookingId) {
-      console.error('No booking ID in payment intent metadata')
-      return
     }
 
-    // Update booking status
-    const booking = await prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        paymentStatus: 'FAILED'
-      },
-      include: {
-        user: true,
-        trip: {
-          include: {
-            route: true
-          }
-        }
-      }
-    })
-
-    // Update payment record
-    await prisma.payment.updateMany({
-      where: {
-        bookingId: bookingId,
-        paymentIntentId: paymentIntent.id
-      },
-      data: {
-        status: 'FAILED'
-      }
-    })
-
-    // Create failure notification
-    await prisma.notification.create({
-      data: {
-        userId: booking.user.id,
-        bookingId: booking.id,
-        type: 'PAYMENT_SUCCESS', // Using existing enum
-        title: 'Payment Failed',
-        message: `Your payment for ${booking.trip.route.fromCity} → ${booking.trip.route.toCity} could not be processed. Please try again.`,
-        data: {
-          paymentIntentId: paymentIntent.id,
-          failureReason: paymentIntent.last_payment_error?.message || 'Unknown error'
-        }
-      }
-    })
-
-    // Release reserved seats after 30 minutes
-    setTimeout(async () => {
-      try {
-        const currentBooking = await prisma.booking.findUnique({
-          where: { id: bookingId },
-          include: { trip: true }
-        })
-
-        if (currentBooking && currentBooking.paymentStatus === 'FAILED') {
-          // Update trip available seats
-          await prisma.trip.update({
-            where: { id: currentBooking.tripId },
-            data: {
-              availableSeats: {
-                increment: currentBooking.seats
-              },
-              bookedSeats: {
-                decrement: currentBooking.seats
-              }
-            }
-          })
-
-          // Cancel the booking
-          await prisma.booking.update({
-            where: { id: bookingId },
-            data: {
-              status: 'CANCELLED',
-              cancellationReason: 'Payment failed - seats released'
-            }
-          })
-        }
-      } catch (error) {
-        console.error('Error releasing seats after payment failure:', error)
-      }
-    }, 30 * 60 * 1000) // 30 minutes
-
-    console.log(`Payment failed for booking ${bookingId}`)
+    console.log(`Subscription created for tenant ${tenantId}: ${tier}`);
 
   } catch (error) {
-    console.error('Error handling payment failure:', error)
+    console.error("Error handling checkout session completed:", error);
   }
 }
 
-// Handle canceled payment
-async function handlePaymentCanceled(paymentIntent: Stripe.PaymentIntent) {
+async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
   try {
-    const bookingId = paymentIntent.metadata.bookingId
-    if (!bookingId) return
-
-    // Update booking and payment status
-    await Promise.all([
-      prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: 'CANCELLED',
-          paymentStatus: 'FAILED',
-          cancellationReason: 'Payment canceled by user'
-        }
-      }),
-      prisma.payment.updateMany({
-        where: {
-          bookingId: bookingId,
-          paymentIntentId: paymentIntent.id
-        },
-        data: {
-          status: 'FAILED'
-        }
-      })
-    ])
-
-    console.log(`Payment canceled for booking ${bookingId}`)
-
+    console.log(`Subscription created: ${subscription.id}`);
+    // Additional logic if needed
   } catch (error) {
-    console.error('Error handling payment cancellation:', error)
+    console.error("Error handling subscription created:", error);
   }
 }
 
-// Handle payment requiring action
-async function handlePaymentRequiresAction(paymentIntent: Stripe.PaymentIntent) {
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
   try {
-    const bookingId = paymentIntent.metadata.bookingId
-    if (!bookingId) return
+    // Find tenant by subscription ID
+    const tenantSubscription = await prisma.tenantSubscription.findUnique({
+      where: { stripeSubscriptionId: subscription.id },
+      include: { tenant: true }
+    });
 
-    // Update payment status
-    await prisma.payment.updateMany({
-      where: {
-        bookingId: bookingId,
-        paymentIntentId: paymentIntent.id
-      },
-      data: {
-        status: 'PROCESSING'
-      }
-    })
-
-    console.log(`Payment requires action for booking ${bookingId}`)
-
-  } catch (error) {
-    console.error('Error handling payment requires action:', error)
-  }
-}
-
-// Handle payment method attached
-async function handlePaymentMethodAttached(paymentMethod: Stripe.PaymentMethod) {
-  try {
-    const customerId = paymentMethod.customer as string
-    if (!customerId) return
-
-    // Find user by customer ID
-    const user = await prisma.user.findFirst({
-      where: {
-        // We would need to store Stripe customer ID in user model
-        // For now, skip this implementation
-      }
-    })
-
-    if (user && paymentMethod.card) {
-      // Store payment method in database
-      await prisma.paymentMethod.create({
-        data: {
-          userId: user.id,
-          type: paymentMethod.type,
-          provider: 'stripe',
-          lastFour: paymentMethod.card.last4,
-          expiryMonth: paymentMethod.card.exp_month,
-          expiryYear: paymentMethod.card.exp_year,
-          metadata: {
-            stripePaymentMethodId: paymentMethod.id,
-            brand: paymentMethod.card.brand
-          }
-        }
-      })
+    if (!tenantSubscription) {
+      console.error(`No tenant found for subscription: ${subscription.id}`);
+      return;
     }
 
-    console.log(`Payment method attached: ${paymentMethod.id}`)
+    // Update subscription status
+    let status: SubscriptionStatus;
+    switch (subscription.status) {
+      case "active":
+        status = SubscriptionStatus.ACTIVE;
+        break;
+      case "past_due":
+        status = SubscriptionStatus.PAST_DUE;
+        break;
+      case "canceled":
+        status = SubscriptionStatus.CANCELLED;
+        break;
+      case "unpaid":
+        status = SubscriptionStatus.UNPAID;
+        break;
+      default:
+        status = SubscriptionStatus.ACTIVE;
+    }
+
+    // Update subscription record
+    await prisma.tenantSubscription.update({
+      where: { id: tenantSubscription.id },
+      data: {
+        status,
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        canceledAt: subscription.canceled_at ? new Date(subscription.canceled_at * 1000) : null,
+      }
+    });
+
+    // Update tenant status
+    await prisma.tenant.update({
+      where: { id: tenantSubscription.tenantId },
+      data: {
+        subscriptionStatus: status
+      }
+    });
+
+    // Handle status changes
+    if (status === SubscriptionStatus.PAST_DUE || status === SubscriptionStatus.UNPAID) {
+      await SubscriptionService.handleSubscriptionPaymentFailed(tenantSubscription.tenantId);
+    } else if (status === SubscriptionStatus.CANCELLED) {
+      await SubscriptionService.handleSubscriptionCancellation(tenantSubscription.tenantId);
+    }
+
+    console.log(`Subscription updated: ${subscription.id} - Status: ${status}`);
 
   } catch (error) {
-    console.error('Error handling payment method attachment:', error)
+    console.error("Error handling subscription updated:", error);
   }
 }
 
-// Handle customer created
-async function handleCustomerCreated(customer: Stripe.Customer) {
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
   try {
-    console.log(`Customer created: ${customer.id}`)
-    // Additional customer creation logic can be added here
+    // Find tenant by subscription ID
+    const tenantSubscription = await prisma.tenantSubscription.findUnique({
+      where: { stripeSubscriptionId: subscription.id }
+    });
+
+    if (!tenantSubscription) {
+      console.error(`No tenant found for subscription: ${subscription.id}`);
+      return;
+    }
+
+    await SubscriptionService.handleSubscriptionCancellation(tenantSubscription.tenantId);
+
+    console.log(`Subscription deleted: ${subscription.id}`);
+
   } catch (error) {
-    console.error('Error handling customer creation:', error)
+    console.error("Error handling subscription deleted:", error);
   }
 }
 
-// Handle invoice payment succeeded
 async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
   try {
-    console.log(`Invoice payment succeeded: ${invoice.id}`)
-    // Handle subscription or recurring payment logic here
+    if (!invoice.subscription) return;
+
+    // Find tenant by subscription ID
+    const tenantSubscription = await prisma.tenantSubscription.findUnique({
+      where: { stripeSubscriptionId: invoice.subscription as string },
+      include: { tenant: true }
+    });
+
+    if (!tenantSubscription) return;
+
+    // Update subscription status to active
+    await prisma.tenantSubscription.update({
+      where: { id: tenantSubscription.id },
+      data: { status: SubscriptionStatus.ACTIVE }
+    });
+
+    await prisma.tenant.update({
+      where: { id: tenantSubscription.tenantId },
+      data: { subscriptionStatus: SubscriptionStatus.ACTIVE }
+    });
+
+    // Re-enable services
+    await SubscriptionService.enableTierServices(
+      tenantSubscription.tenantId, 
+      tenantSubscription.tier
+    );
+
+    console.log(`Invoice payment succeeded for subscription: ${invoice.subscription}`);
+
   } catch (error) {
-    console.error('Error handling invoice payment success:', error)
+    console.error("Error handling invoice payment succeeded:", error);
   }
 }
 
-// Handle charge dispute created
-async function handleChargeDisputeCreated(dispute: Stripe.Dispute) {
+async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
   try {
-    console.log(`Charge dispute created: ${dispute.id}`)
-    
-    // Find related booking through charge
-    const chargeId = dispute.charge as string
-    
-    // Create admin notification for dispute
-    // This would require admin user management
-    console.log(`Dispute amount: $${(dispute.amount / 100).toFixed(2)}`)
-    console.log(`Dispute reason: ${dispute.reason}`)
-    
+    if (!invoice.subscription) return;
+
+    // Find tenant by subscription ID
+    const tenantSubscription = await prisma.tenantSubscription.findUnique({
+      where: { stripeSubscriptionId: invoice.subscription as string },
+      include: { tenant: true }
+    });
+
+    if (!tenantSubscription) return;
+
+    await SubscriptionService.handleSubscriptionPaymentFailed(tenantSubscription.tenantId);
+
+    // Send payment failed email
+    const emailService = new EmailService();
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantSubscription.tenantId },
+      include: {
+        users: {
+          where: {
+            role: { in: ["TENANT_ADMIN", "ADMIN"] }
+          }
+        }
+      }
+    });
+
+    if (tenant) {
+      for (const user of tenant.users) {
+        try {
+          await emailService.sendEmail(
+            tenantSubscription.tenantId,
+            "subscription_payment_failed",
+            user.email,
+            {
+              updatePaymentUrl: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing`
+            }
+          );
+        } catch (emailError) {
+          console.error("Failed to send payment failed email:", emailError);
+        }
+      }
+    }
+
+    console.log(`Invoice payment failed for subscription: ${invoice.subscription}`);
+
   } catch (error) {
-    console.error('Error handling charge dispute:', error)
+    console.error("Error handling invoice payment failed:", error);
+  }
+}
+
+async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
+  try {
+    const { metadata } = paymentIntent;
+    
+    if (metadata?.bookingId) {
+      // Handle booking payment
+      await prisma.booking.update({
+        where: { id: metadata.bookingId },
+        data: {
+          paymentStatus: "COMPLETED",
+          status: "CONFIRMED"
+        }
+      });
+
+      // Create payment record
+      await prisma.payment.create({
+        data: {
+          bookingId: metadata.bookingId,
+          amountCents: paymentIntent.amount,
+          currency: paymentIntent.currency.toUpperCase(),
+          paymentMethod: "stripe",
+          paymentIntentId: paymentIntent.id,
+          transactionId: paymentIntent.charges.data[0]?.id,
+          status: "COMPLETED"
+        }
+      });
+
+      // Send payment confirmation email
+      const booking = await prisma.booking.findUnique({
+        where: { id: metadata.bookingId },
+        include: {
+          user: true,
+          trip: {
+            include: {
+              route: true,
+              operator: {
+                include: { tenant: true }
+              }
+            }
+          }
+        }
+      });
+
+      if (booking?.trip.operator.tenant) {
+        const emailService = new EmailService();
+        try {
+          await emailService.sendEmail(
+            booking.trip.operator.tenant.id,
+            "payment_success",
+            booking.passengerEmail,
+            {
+              passengerName: booking.passengerName,
+              bookingReference: booking.confirmationCode,
+              paidAmount: `$${(paymentIntent.amount / 100).toFixed(2)}`,
+              paymentMethod: "Credit Card",
+              transactionId: paymentIntent.charges.data[0]?.id || paymentIntent.id,
+              receiptUrl: paymentIntent.charges.data[0]?.receipt_url || ""
+            }
+          );
+        } catch (emailError) {
+          console.error("Failed to send payment confirmation email:", emailError);
+        }
+      }
+
+      console.log(`Booking payment succeeded: ${metadata.bookingId}`);
+    }
+
+  } catch (error) {
+    console.error("Error handling payment intent succeeded:", error);
+  }
+}
+
+async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
+  try {
+    const { metadata } = paymentIntent;
+    
+    if (metadata?.bookingId) {
+      // Handle booking payment failure
+      await prisma.booking.update({
+        where: { id: metadata.bookingId },
+        data: {
+          paymentStatus: "FAILED",
+          status: "CANCELLED"
+        }
+      });
+
+      console.log(`Booking payment failed: ${metadata.bookingId}`);
+    }
+
+  } catch (error) {
+    console.error("Error handling payment intent failed:", error);
   }
 }
 
