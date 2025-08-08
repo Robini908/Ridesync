@@ -1,227 +1,314 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { redis } from '@/lib/redis'
-import { grokChat } from '@/lib/ai'
-import { auth } from '@clerk/nextjs/server'
+import { headers } from 'next/headers'
 
 export async function GET(req: NextRequest) {
   try {
+    const headersList = await headers()
+    const tenantId = headersList.get('x-tenant-id')
+    
     const { searchParams } = new URL(req.url)
-    const from = searchParams.get('from') || ''
-    const to = searchParams.get('to') || ''
-    const date = searchParams.get('date') || ''
-    const passengers = Number(searchParams.get('passengers') || '1')
-    const vehicleType = searchParams.get('vehicleType') || ''
-    const priceRange = searchParams.get('priceRange') || '0,500'
+    const from = searchParams.get('from')
+    const to = searchParams.get('to')
+    const date = searchParams.get('date')
+    const passengers = parseInt(searchParams.get('passengers') || '1')
+    const vehicleType = searchParams.get('vehicleType')
+    const minPrice = parseInt(searchParams.get('minPrice') || '0')
+    const maxPrice = parseInt(searchParams.get('maxPrice') || '999999')
     const amenities = searchParams.get('amenities')?.split(',').filter(Boolean) || []
-    const rating = Number(searchParams.get('rating') || '0')
+    const departureTime = searchParams.get('departureTime')
+    const minRating = parseFloat(searchParams.get('rating') || '0')
 
-    // Get user context for AI recommendations
-    const { userId } = await auth()
-    let userPreferences = null
-    
-    if (userId) {
-      const user = await prisma.user.findUnique({
-        where: { externalId: userId },
-        select: { preferences: true, totalTrips: true }
-      })
-      userPreferences = user?.preferences
+    if (!from || !to || !date) {
+      return NextResponse.json(
+        { error: 'Missing required search parameters: from, to, date' },
+        { status: 400 }
+      )
     }
 
-    // Create cache key
-    const cacheKey = `search:${from}:${to}:${date}:${passengers}:${vehicleType}:${priceRange}:${amenities.join(',')}:${rating}`
-    
-    // Check cache first
-    const cached = await redis.get(cacheKey)
-    if (cached) {
-      const cachedData = JSON.parse(cached)
-      return NextResponse.json(cachedData)
-    }
-
-    // Build search filters
+    // Build where clause for trip search
     const whereClause: any = {
-      AND: [
-        // Date filter
-        date ? { departureDate: date } : {},
-        
-        // Seat availability
-        { availableSeats: { gte: passengers } },
-        
-        // Vehicle type filter
-        vehicleType ? { vehicle: { type: vehicleType } } : {},
-        
-        // Location filters
-        from || to ? {
-          route: {
-            AND: [
-              from ? { fromCity: { contains: from, mode: 'insensitive' } } : {},
-              to ? { toCity: { contains: to, mode: 'insensitive' } } : {},
-            ]
+      departureDate: date,
+      availableSeats: { gte: passengers },
+      status: 'scheduled',
+      route: {
+        OR: [
+          {
+            fromCity: { contains: from, mode: 'insensitive' },
+            toCity: { contains: to, mode: 'insensitive' }
+          },
+          {
+            fromAddress: { contains: from, mode: 'insensitive' },
+            toAddress: { contains: to, mode: 'insensitive' }
           }
-        } : {},
-        
-        // Price range filter
-        {
-          currentPriceCents: {
-            gte: Number(priceRange.split(',')[0]) * 100,
-            lte: Number(priceRange.split(',')[1]) * 100
-          }
-        },
-        
-        // Amenities filter
-        amenities.length > 0 ? {
-          vehicle: {
-            amenities: {
-              hasEvery: amenities
-            }
-          }
-        } : {},
-        
-        // Rating filter
-        rating > 0 ? {
-          operator: {
-            rating: { gte: rating }
-          }
-        } : {},
-        
-        // Only active trips
-        { status: 'scheduled' }
-      ].filter(condition => Object.keys(condition).length > 0)
+        ]
+      },
+      currentPriceCents: {
+        gte: minPrice * 100,
+        lte: maxPrice * 100
+      }
     }
 
-    // Execute search query
+    // Add tenant filter if available
+    if (tenantId) {
+      whereClause.operator = {
+        tenantId: tenantId
+      }
+    }
+
+    // Add vehicle type filter
+    if (vehicleType && vehicleType !== '') {
+      whereClause.vehicle = {
+        type: vehicleType
+      }
+    }
+
+    // Add operator rating filter
+    if (minRating > 0) {
+      whereClause.operator = {
+        ...whereClause.operator,
+        rating: { gte: minRating }
+      }
+    }
+
+    // Add amenities filter
+    if (amenities.length > 0) {
+      whereClause.vehicle = {
+        ...whereClause.vehicle,
+        amenities: {
+          hasEvery: amenities
+        }
+      }
+    }
+
+    // Add departure time filter
+    if (departureTime) {
+      const [start, end] = departureTime.split('-')
+      if (start && end) {
+        whereClause.departureTime = {
+          gte: start,
+          lte: end
+        }
+      }
+    }
+
+    // Search for trips
     const trips = await prisma.trip.findMany({
       where: whereClause,
       include: {
+        route: true,
         vehicle: {
-          select: {
-            name: true,
-            type: true,
-            amenities: true,
-            seats: true,
-            images: true,
-            model: true,
-            year: true
+          include: {
+            assignedDriver: {
+              select: {
+                firstName: true,
+                lastName: true,
+                avatar: true
+              }
+            }
           }
         },
-        route: {
-          select: {
-            fromCity: true,
-            toCity: true,
-            fromAddress: true,
-            toAddress: true,
-            fromCoordinates: true,
-            toCoordinates: true,
-            distanceKm: true,
-            estimatedDuration: true,
-            waypoints: true
-          }
-        },
-        operator: {
-          select: {
-            name: true,
-            rating: true,
-            totalReviews: true,
-            logo: true,
-            isVerified: true
-          }
-        }
+        operator: true
       },
       orderBy: [
-        { operator: { rating: 'desc' } },
         { currentPriceCents: 'asc' },
         { departureTime: 'asc' }
       ],
-      take: 50 // Limit results for performance
+      take: 50 // Limit results
     })
 
-    // Generate AI recommendations if user is authenticated and has preferences
-    let aiRecommendations: any[] = []
-    
-    if (userId && userPreferences && trips.length > 0) {
-      try {
-        const aiPrompt = `Based on user preferences: ${JSON.stringify(userPreferences)} and search results for ${from} to ${to}, provide 3 personalized trip recommendations with reasons. Focus on value, comfort, and user history.`
-        
-        const aiResponse = await grokChat([
-          {
-            role: 'system',
-            content: 'You are a travel recommendation AI. Provide concise, helpful trip recommendations based on user preferences and available options.'
-          },
-          {
-            role: 'user',
-            content: aiPrompt
-          }
-        ])
-        
-        // Parse AI response and match with actual trips
-        if (aiResponse?.choices?.[0]?.message?.content) {
-          aiRecommendations = trips.slice(0, 3).map((trip, index) => ({
-            tripId: trip.id,
-            reason: `AI Recommended: ${aiResponse.choices[0].message.content.split('\n')[index] || 'Great value and comfort match'}`
-          }))
-        }
-      } catch (aiError) {
-        console.error('AI recommendation error:', aiError)
-        // Continue without AI recommendations
+    // Generate AI recommendations based on search
+    const aiRecommendations = await generateAIRecommendations({
+      trips,
+      from,
+      to,
+      date,
+      passengers,
+      preferences: {
+        priceRange: [minPrice, maxPrice],
+        amenities,
+        vehicleType,
+        rating: minRating
       }
+    })
+
+    // Format trip data for response
+    const formattedTrips = trips.map(trip => ({
+      id: trip.id,
+      route: {
+        fromCity: trip.route.fromCity,
+        toCity: trip.route.toCity,
+        fromAddress: trip.route.fromAddress,
+        toAddress: trip.route.toAddress,
+        fromCoordinates: trip.route.fromCoordinates,
+        toCoordinates: trip.route.toCoordinates,
+        distanceKm: trip.route.distanceKm,
+        estimatedDuration: trip.route.estimatedDuration
+      },
+      vehicle: {
+        name: trip.vehicle.name,
+        type: trip.vehicle.type,
+        amenities: trip.vehicle.amenities,
+        seats: trip.vehicle.seats,
+        images: trip.vehicle.images,
+        features: trip.vehicle.features,
+        driver: trip.vehicle.assignedDriver ? {
+          name: `${trip.vehicle.assignedDriver.firstName} ${trip.vehicle.assignedDriver.lastName}`,
+          avatar: trip.vehicle.assignedDriver.avatar
+        } : null
+      },
+      operator: {
+        name: trip.operator.name,
+        rating: trip.operator.rating,
+        totalReviews: trip.operator.totalReviews,
+        isVerified: trip.operator.isVerified,
+        logo: trip.operator.logo
+      },
+      departureDate: trip.departureDate,
+      departureTime: trip.departureTime,
+      arrivalTime: trip.arrivalTime,
+      currentPriceCents: trip.currentPriceCents,
+      basePriceCents: trip.basePriceCents,
+      availableSeats: trip.availableSeats,
+      totalSeats: trip.totalSeats,
+      status: trip.status,
+      delayMinutes: trip.delayMinutes,
+      realTimeLocation: trip.realTimeLocation
+    }))
+
+    // Calculate search statistics
+    const statistics = {
+      totalResults: formattedTrips.length,
+      priceRange: formattedTrips.length > 0 ? {
+        min: Math.min(...formattedTrips.map(t => t.currentPriceCents)) / 100,
+        max: Math.max(...formattedTrips.map(t => t.currentPriceCents)) / 100,
+        average: formattedTrips.reduce((sum, t) => sum + t.currentPriceCents, 0) / formattedTrips.length / 100
+      } : null,
+      operators: [...new Set(formattedTrips.map(t => t.operator.name))].length,
+      vehicleTypes: [...new Set(formattedTrips.map(t => t.vehicle.type))].length
     }
 
-    // Apply dynamic pricing based on demand and time
-    const enhancedTrips = trips.map(trip => {
-      const basePrice = trip.currentPriceCents
-      const occupancyRate = (trip.totalSeats - trip.availableSeats) / trip.totalSeats
-      const demandMultiplier = 1 + (occupancyRate * 0.3) // Up to 30% increase based on demand
-      
-      // Time-based pricing (peak hours)
-      const departureHour = parseInt(trip.departureTime.split(':')[0])
-      const isPeakHour = (departureHour >= 7 && departureHour <= 9) || (departureHour >= 17 && departureHour <= 19)
-      const timeMultiplier = isPeakHour ? 1.15 : 1.0
-      
-      const dynamicPrice = Math.round(basePrice * demandMultiplier * timeMultiplier)
-      
-      return {
-        ...trip,
-        currentPriceCents: dynamicPrice,
-        originalPriceCents: basePrice,
-        priceIncrease: dynamicPrice > basePrice ? ((dynamicPrice - basePrice) / basePrice * 100).toFixed(0) : null
-      }
-    })
-
-    // Prepare response data
-    const responseData = {
-      trips: enhancedTrips,
+    return NextResponse.json({
+      success: true,
+      trips: formattedTrips,
       aiRecommendations,
-      searchMeta: {
-        total: enhancedTrips.length,
+      statistics,
+      searchParams: {
         from,
         to,
         date,
         passengers,
-        filters: {
-          vehicleType,
-          priceRange,
-          amenities,
-          rating
-        }
-      },
-      timestamp: new Date().toISOString()
-    }
-
-    // Cache results for 5 minutes
-    await redis.set(cacheKey, JSON.stringify(responseData), 'EX', 300)
-
-    return NextResponse.json(responseData)
+        vehicleType,
+        priceRange: [minPrice, maxPrice],
+        amenities,
+        departureTime,
+        rating: minRating
+      }
+    })
 
   } catch (error) {
-    console.error('Search API error:', error)
+    console.error('Search error:', error)
     return NextResponse.json(
       { 
-        error: 'Search failed', 
-        message: error instanceof Error ? error.message : 'Unknown error',
-        trips: [],
-        aiRecommendations: []
+        error: 'Search failed',
+        message: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     )
   }
+}
+
+// AI recommendation engine
+async function generateAIRecommendations({ trips, from, to, date, passengers, preferences }: {
+  trips: any[]
+  from: string
+  to: string
+  date: string
+  passengers: number
+  preferences: any
+}) {
+  if (trips.length === 0) return []
+
+  const recommendations = []
+
+  // Best value recommendation
+  const sortedByValue = trips
+    .map(trip => ({
+      ...trip,
+      valueScore: (trip.operator.rating * 20) + (100 - (trip.currentPriceCents / 100))
+    }))
+    .sort((a, b) => b.valueScore - a.valueScore)
+
+  if (sortedByValue.length > 0) {
+    recommendations.push({
+      type: 'best_value',
+      title: 'Best Value',
+      description: 'Great balance of price and quality',
+      trip: sortedByValue[0],
+      reason: `Highly rated operator (${sortedByValue[0].operator.rating}★) with competitive pricing`
+    })
+  }
+
+  // Fastest trip recommendation
+  const fastestTrip = trips.reduce((fastest, current) => 
+    current.route.estimatedDuration < fastest.route.estimatedDuration ? current : fastest
+  )
+
+  if (fastestTrip) {
+    recommendations.push({
+      type: 'fastest',
+      title: 'Fastest Route',
+      description: `Get there in ${fastestTrip.route.estimatedDuration} minutes`,
+      trip: fastestTrip,
+      reason: `Shortest travel time with ${fastestTrip.route.distanceKm}km distance`
+    })
+  }
+
+  // Luxury recommendation (most amenities)
+  const luxuryTrip = trips.reduce((luxury, current) => 
+    current.vehicle.amenities.length > luxury.vehicle.amenities.length ? current : luxury
+  )
+
+  if (luxuryTrip && luxuryTrip.vehicle.amenities.length > 3) {
+    recommendations.push({
+      type: 'luxury',
+      title: 'Most Comfortable',
+      description: `${luxuryTrip.vehicle.amenities.length} premium amenities`,
+      trip: luxuryTrip,
+      reason: `Maximum comfort with ${luxuryTrip.vehicle.amenities.join(', ')}`
+    })
+  }
+
+  // Early departure recommendation
+  const earlyTrips = trips.filter(trip => trip.departureTime <= '09:00')
+  if (earlyTrips.length > 0) {
+    const earliestTrip = earlyTrips.reduce((earliest, current) => 
+      current.departureTime < earliest.departureTime ? current : earliest
+    )
+    
+    recommendations.push({
+      type: 'early_bird',
+      title: 'Early Departure',
+      description: `Start your journey at ${earliestTrip.departureTime}`,
+      trip: earliestTrip,
+      reason: 'Beat the traffic and arrive refreshed'
+    })
+  }
+
+  // Popular operator recommendation
+  const popularTrip = trips.reduce((popular, current) => 
+    current.operator.totalReviews > popular.operator.totalReviews ? current : popular
+  )
+
+  if (popularTrip && popularTrip.operator.totalReviews > 100) {
+    recommendations.push({
+      type: 'popular',
+      title: 'Most Popular',
+      description: `${popularTrip.operator.totalReviews} customer reviews`,
+      trip: popularTrip,
+      reason: `Trusted by thousands with ${popularTrip.operator.rating}★ rating`
+    })
+  }
+
+  return recommendations.slice(0, 3) // Return top 3 recommendations
 }

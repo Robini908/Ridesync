@@ -500,7 +500,7 @@ export default function OperatorDashboard() {
                           <span className="text-white">{vehicle.seats} seats</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-zinc-400">Today's Trips</span>
+                          <span className="text-zinc-400">Today&apos;s Trips</span>
                           <span className="text-white">{vehicle.todayTrips}</span>
                         </div>
                         <div className="flex justify-between text-sm">

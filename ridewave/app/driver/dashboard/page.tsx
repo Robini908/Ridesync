@@ -265,7 +265,7 @@ export default function DriverDashboard() {
                   </div>
                   <div>
                     <p className="text-lg font-bold text-white">${stats.todayEarnings}</p>
-                    <p className="text-xs text-zinc-400">Today's Earnings</p>
+                    <p className="text-xs text-zinc-400">Today&apos;s Earnings</p>
                   </div>
                 </div>
               </CardContent>

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
-import { createPaymentIntent, getCustomerPaymentMethods, type PaymentIntentData } from '@/lib/stripe'
+import { createPaymentIntent, getCustomerPaymentMethods } from '@/lib/stripe'
 import { z } from 'zod'
 
-const createIntentSchema = z.object({
-  amount: z.number().min(50), // Minimum $0.50
-  currency: z.string().min(3).max(3),
+const paymentIntentSchema = z.object({
+  amount: z.number().min(1),
+  currency: z.string().default('usd'),
   bookingId: z.string(),
   description: z.string(),
   customerEmail: z.string().email(),
@@ -24,19 +24,30 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const validatedData = createIntentSchema.parse(body)
+    const validatedData = paymentIntentSchema.parse(body)
 
     // Verify booking exists and belongs to user
+    const user = await prisma.user.findUnique({
+      where: { externalId: userId }
+    })
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      )
+    }
+
     const booking = await prisma.booking.findUnique({
       where: { id: validatedData.bookingId },
       include: {
-        user: true,
         trip: {
           include: {
             route: true,
             operator: true
           }
-        }
+        },
+        user: true
       }
     })
 
@@ -47,17 +58,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (booking.user.externalId !== userId) {
+    if (booking.userId !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized access to booking' },
         { status: 403 }
       )
     }
 
-    // Check if booking is already paid
-    if (booking.paymentStatus === 'COMPLETED') {
+    // Check if booking is in valid state for payment
+    if (booking.status !== 'PENDING') {
       return NextResponse.json(
-        { error: 'Booking is already paid' },
+        { error: 'Booking is not in a payable state' },
         { status: 400 }
       )
     }
@@ -70,68 +81,48 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Create payment intent data
-    const paymentIntentData: PaymentIntentData = {
+    // Create payment intent with Stripe
+    const paymentIntent = await createPaymentIntent({
       amount: validatedData.amount,
       currency: validatedData.currency,
       bookingId: validatedData.bookingId,
-      userId,
+      userId: user.id,
       customerEmail: validatedData.customerEmail,
       description: validatedData.description,
       metadata: {
-        tripRoute: `${booking.trip.route.fromCity} → ${booking.trip.route.toCity}`,
+        bookingId: booking.id,
+        confirmationCode: booking.confirmationCode,
+        tripRoute: `${booking.trip.route.fromCity} to ${booking.trip.route.toCity}`,
         operatorName: booking.trip.operator.name,
-        departureDate: booking.trip.departureDate,
-        seatNumbers: booking.seatNumbers.join(', '),
         ...validatedData.metadata
-      }
-    }
-
-    // Create payment intent
-    const paymentIntent = await createPaymentIntent(paymentIntentData)
-
-    // Get customer's saved payment methods
-    let paymentMethods: any[] = []
-    try {
-      const customerId = paymentIntent.customer as string
-      if (customerId) {
-        const stripePaymentMethods = await getCustomerPaymentMethods(customerId)
-        paymentMethods = stripePaymentMethods.map(pm => ({
-          id: pm.id,
-          type: pm.type,
-          card: pm.card ? {
-            brand: pm.card.brand,
-            last4: pm.card.last4,
-            exp_month: pm.card.exp_month,
-            exp_year: pm.card.exp_year
-          } : undefined,
-          isDefault: false // TODO: Implement default payment method logic
-        }))
-      }
-    } catch (error) {
-      console.error('Error fetching payment methods:', error)
-      // Continue without payment methods
-    }
-
-    // Update booking with payment intent ID
-    await prisma.booking.update({
-      where: { id: validatedData.bookingId },
-      data: {
-        paymentIntentId: paymentIntent.id,
-        paymentStatus: 'PENDING'
       }
     })
 
-    // Create payment record
+    // Get customer's saved payment methods
+    const paymentMethods = await getCustomerPaymentMethods(validatedData.customerEmail, user.id)
+
+    // Create payment record in database
     await prisma.payment.create({
       data: {
-        bookingId: validatedData.bookingId,
+        bookingId: booking.id,
         amountCents: validatedData.amount,
-        currency: validatedData.currency,
+        currency: validatedData.currency.toUpperCase(),
         paymentMethod: 'stripe',
         paymentIntentId: paymentIntent.id,
         status: 'PENDING',
-        metadata: paymentIntentData.metadata
+        metadata: {
+          stripeClientSecret: paymentIntent.client_secret,
+          description: validatedData.description
+        }
+      }
+    })
+
+    // Update booking with payment intent
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        paymentIntentId: paymentIntent.id,
+        paymentStatus: 'PROCESSING'
       }
     })
 
@@ -139,15 +130,27 @@ export async function POST(req: NextRequest) {
       success: true,
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
-      paymentMethods,
+      paymentMethods: paymentMethods.map(pm => ({
+        id: pm.id,
+        type: pm.type,
+        card: pm.card ? {
+          brand: pm.card.brand,
+          last4: pm.card.last4,
+          exp_month: pm.card.exp_month,
+          exp_year: pm.card.exp_year
+        } : undefined,
+        isDefault: pm.metadata?.isDefault === 'true'
+      })),
       booking: {
         id: booking.id,
         confirmationCode: booking.confirmationCode,
-        totalAmount: booking.totalPriceCents,
+        totalAmount: booking.totalPriceCents / 100,
+        currency: validatedData.currency.toUpperCase(),
         trip: {
-          route: booking.trip.route,
-          departureDate: booking.trip.departureDate,
-          departureTime: booking.trip.departureTime
+          route: `${booking.trip.route.fromCity} → ${booking.trip.route.toCity}`,
+          date: booking.trip.departureDate,
+          time: booking.trip.departureTime,
+          operator: booking.trip.operator.name
         }
       }
     })
@@ -165,9 +168,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Handle Stripe errors
+    if (error instanceof Error && error.message.includes('stripe')) {
+      return NextResponse.json(
+        { error: 'Payment system error', details: error.message },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(
       { 
-        error: 'Failed to create payment intent',
+        error: 'Payment initialization failed',
         message: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }

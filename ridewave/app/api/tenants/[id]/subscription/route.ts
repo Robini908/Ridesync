@@ -47,10 +47,10 @@ async function checkPermission(tenantId: string) {
 // GET /api/tenants/[id]/subscription - Get subscription details
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenantId = params.id;
+    const { id: tenantId } = await params;
 
     const authResult = await checkPermission(tenantId);
     if ('error' in authResult) {
@@ -101,10 +101,10 @@ export async function GET(
 // POST /api/tenants/[id]/subscription - Manage subscription
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenantId = params.id;
+    const { id: tenantId } = await params;
 
     const authResult = await checkPermission(tenantId);
     if ('error' in authResult) {
@@ -232,10 +232,10 @@ export async function POST(
 // PUT /api/tenants/[id]/subscription - Update subscription settings
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenantId = params.id;
+    const { id: tenantId } = await params;
 
     const authResult = await checkPermission(tenantId);
     if ('error' in authResult) {

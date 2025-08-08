@@ -71,10 +71,10 @@ async function checkPermission(tenantId: string, requiredRoles: string[]) {
 // GET /api/tenants/[id] - Get tenant details
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenantId = params.id;
+    const { id: tenantId } = await params;
 
     const authResult = await checkPermission(tenantId, ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN']);
     if ('error' in authResult) {
@@ -190,10 +190,10 @@ export async function GET(
 // PUT /api/tenants/[id] - Update tenant
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenantId = params.id;
+    const { id: tenantId } = await params;
 
     const authResult = await checkPermission(tenantId, ['SUPER_ADMIN', 'ADMIN', 'TENANT_ADMIN']);
     if ('error' in authResult) {
@@ -306,10 +306,10 @@ export async function PUT(
 // DELETE /api/tenants/[id] - Delete tenant (Super Admin only)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenantId = params.id;
+    const { id: tenantId } = await params;
 
     const authResult = await checkPermission(tenantId, ['SUPER_ADMIN']);
     if ('error' in authResult) {
