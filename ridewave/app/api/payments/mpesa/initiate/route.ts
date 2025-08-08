@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
 import { prisma } from '@/lib/prisma'
+import { mpesaService } from '@/lib/mpesa'
 import { z } from 'zod'
 
 const mpesaInitiateSchema = z.object({
@@ -174,13 +175,13 @@ export async function POST(req: NextRequest) {
         amount: validatedData.amount,
         accountReference: validatedData.accountReference,
         transactionDesc: validatedData.transactionDesc,
-        status: 'PENDING',
-        responseCode: stkResponse.ResponseCode,
-        responseDescription: stkResponse.ResponseDescription,
+        status: 'initiated',
         metadata: {
           timestamp,
           businessShortCode: MPESA_BUSINESS_SHORT_CODE,
-          transactionType: 'CustomerPayBillOnline'
+          transactionType: 'CustomerPayBillOnline',
+          responseCode: stkResponse.ResponseCode,
+          responseDescription: stkResponse.ResponseDescription
         }
       }
     })
@@ -189,8 +190,7 @@ export async function POST(req: NextRequest) {
     await prisma.booking.update({
       where: { id: booking.id },
       data: {
-        paymentStatus: 'PROCESSING',
-        mpesaCheckoutRequestId: stkResponse.CheckoutRequestID
+        paymentStatus: 'PROCESSING'
       }
     })
 
