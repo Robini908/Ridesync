@@ -16,6 +16,8 @@ enum VehicleType {
 enum BookingStatus {
   PENDING
   CONFIRMED
+  IN_PROGRESS
+  COMPLETED
   CANCELLED
   REFUNDED
 }
@@ -26,81 +28,304 @@ enum Amenity {
   ACCESSIBILITY
   POWER
   RESTROOM
+  ENTERTAINMENT
+  MEALS
+  LUGGAGE_SPACE
+}
+
+enum UserRole {
+  USER
+  OPERATOR
+  ADMIN
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  PAYMENT_SUCCESS
+  TRIP_REMINDER
+  DELAY_NOTIFICATION
+  CANCELLATION
+  PROMOTION
+  SYSTEM_UPDATE
+}
+
+model User {
+  id                String      @id @default(cuid())
+  externalId        String      @unique // Clerk user ID
+  email             String      @unique
+  firstName         String?
+  lastName          String?
+  phone             String?
+  avatar            String?
+  role              UserRole    @default(USER)
+  preferences       Json?       // AI preferences, favorite routes, etc.
+  loyaltyPoints     Int         @default(0)
+  totalTrips        Int         @default(0)
+  isEmailVerified   Boolean     @default(false)
+  isPhoneVerified   Boolean     @default(false)
+  language          String      @default("en")
+  timezone          String      @default("UTC")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  
+  // Relations
+  bookings          Booking[]
+  reviews           Review[]
+  notifications     Notification[]
+  savedRoutes       SavedRoute[]
+  paymentMethods    PaymentMethod[]
 }
 
 model Operator {
+  id              String     @id @default(cuid())
+  name            String
+  description     String?
+  email           String     @unique
+  phone           String?
+  website         String?
+  logo            String?
+  rating          Float      @default(0)
+  totalReviews    Int        @default(0)
+  isVerified      Boolean    @default(false)
+  licenseNumber   String?
+  address         String?
+  city            String?
+  country         String?
+  coordinates     Json?      // {lat, lng}
+  businessHours   Json?      // Operating hours
+  policies        Json?      // Cancellation, refund policies
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
+  // Relations
+  vehicles        Vehicle[]
+  routes          Route[]
+  trips           Trip[]
+  analytics       OperatorAnalytics[]
+}
+
+model Vehicle {
+  id              String        @id @default(cuid())
+  operator        Operator      @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operatorId      String
+  name            String
+  type            VehicleType
+  model           String?
+  year            Int?
+  seats           Int
+  amenities       Amenity[]
+  licensePlate    String        @unique
+  color           String?
+  images          String[]      // Array of image URLs
+  features        Json?         // Additional features
+  isActive        Boolean       @default(true)
+  currentLocation Json?         // {lat, lng, timestamp}
+  lastMaintenance DateTime?
+  nextMaintenance DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  trips           Trip[]
+}
+
+model Route {
+  id              String      @id @default(cuid())
+  operator        Operator    @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+  operatorId      String
+  name            String?     // Route name/identifier
+  fromCity        String
+  toCity          String
+  fromAddress     String?
+  toAddress       String?
+  fromCoordinates Json        // {lat, lng}
+  toCoordinates   Json        // {lat, lng}
+  waypoints       Json?       // Array of intermediate stops
+  distanceKm      Float
+  estimatedDuration Int       // in minutes
+  isActive        Boolean     @default(true)
+  description     String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  trips           Trip[]
+  savedRoutes     SavedRoute[]
+}
+
+model Trip {
+  id              String      @id @default(cuid())
+  operator        Operator    @relation(fields: [operatorId], references: [id])
+  operatorId      String
+  route           Route       @relation(fields: [routeId], references: [id])
+  routeId         String
+  vehicle         Vehicle     @relation(fields: [vehicleId], references: [id])
+  vehicleId       String
+  departureDate   String      // YYYY-MM-DD
+  departureTime   String      // HH:MM
+  arrivalTime     String?     // HH:MM (estimated)
+  basePriceCents  Int
+  currentPriceCents Int       // Dynamic pricing
+  totalSeats      Int
+  availableSeats  Int
+  bookedSeats     Int         @default(0)
+  status          String      @default("scheduled") // scheduled, in_progress, completed, cancelled
+  actualDepartureTime String?
+  actualArrivalTime String?
+  delayMinutes    Int         @default(0)
+  cancellationReason String?
+  driverInfo      Json?       // Driver details
+  realTimeLocation Json?      // Current vehicle location
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  bookings        Booking[]
+  tripUpdates     TripUpdate[]
+}
+
+model Booking {
+  id                String         @id @default(cuid())
+  trip              Trip           @relation(fields: [tripId], references: [id])
+  tripId            String
+  user              User           @relation(fields: [userId], references: [id])
+  userId            String
+  passengerName     String
+  passengerEmail    String
+  passengerPhone    String?
+  seats             Int
+  seatNumbers       String[]       // Specific seat assignments
+  totalPriceCents   Int
+  status            BookingStatus  @default(PENDING)
+  paymentIntentId   String?
+  paymentStatus     PaymentStatus  @default(PENDING)
+  confirmationCode  String         @unique
+  pickupLocation    Json?          // {address, coordinates}
+  dropoffLocation   Json?          // {address, coordinates}
+  specialRequests   String?
+  cancellationReason String?
+  refundAmount      Int?
+  bookingSource     String         @default("web") // web, mobile, api
+  metadata          Json?          // Additional booking data
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  
+  // Relations
+  reviews           Review[]
+  notifications     Notification[]
+  payments          Payment[]
+}
+
+model Review {
   id          String   @id @default(cuid())
-  name        String
-  description String?
-  rating      Float    @default(0)
-  vehicles    Vehicle[]
-  routes      Route[]
-  trips       Trip[]
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  bookingId   String
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  rating      Int      // 1-5 stars
+  comment     String?
+  categories  Json?    // Rating breakdown (comfort, punctuality, cleanliness, etc.)
+  isVerified  Boolean  @default(false)
+  isPublic    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-model Vehicle {
-  id           String      @id @default(cuid())
-  operator     Operator    @relation(fields: [operatorId], references: [id])
-  operatorId   String
-  name         String
-  type         VehicleType
-  seats        Int
-  amenities    Amenity[]
-  licensePlate String
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  trips        Trip[]
+model Payment {
+  id              String        @id @default(cuid())
+  booking         Booking       @relation(fields: [bookingId], references: [id])
+  bookingId       String
+  amountCents     Int
+  currency        String        @default("USD")
+  paymentMethod   String        // stripe, paypal, mpesa, etc.
+  paymentIntentId String?
+  transactionId   String?
+  status          PaymentStatus @default(PENDING)
+  metadata        Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
-model Route {
+model PaymentMethod {
+  id              String   @id @default(cuid())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  type            String   // card, bank_account, digital_wallet
+  provider        String   // stripe, paypal, etc.
+  lastFour        String?
+  expiryMonth     Int?
+  expiryYear      Int?
+  isDefault       Boolean  @default(false)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  user        User             @relation(fields: [userId], references: [id])
+  userId      String
+  booking     Booking?         @relation(fields: [bookingId], references: [id])
+  bookingId   String?
+  type        NotificationType
+  title       String
+  message     String
+  data        Json?            // Additional notification data
+  isRead      Boolean          @default(false)
+  sentAt      DateTime?
+  createdAt   DateTime         @default(now())
+}
+
+model SavedRoute {
   id        String   @id @default(cuid())
-  operator  Operator @relation(fields: [operatorId], references: [id])
-  operatorId String
-  fromCity  String
-  toCity    String
-  distanceKm Float
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  route     Route    @relation(fields: [routeId], references: [id])
+  routeId   String
+  nickname  String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  trips     Trip[]
+  
+  @@unique([userId, routeId])
 }
 
-model Trip {
-  id             String   @id @default(cuid())
-  operator       Operator @relation(fields: [operatorId], references: [id])
-  operatorId     String
-  route          Route    @relation(fields: [routeId], references: [id])
-  routeId        String
-  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id])
-  vehicleId      String
-  departureDate  String
-  departureTime  String
-  priceCents     Int
-  availableSeats Int
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  bookings       Booking[]
-}
-
-model Booking {
-  id               String        @id @default(cuid())
-  trip             Trip          @relation(fields: [tripId], references: [id])
-  tripId           String
-  userExternalId   String        // Clerk user id
-  seats            Int
-  status           BookingStatus @default(PENDING)
-  paymentIntentId  String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  reviews          Review[]
-}
-
-model Review {
+model TripUpdate {
   id        String   @id @default(cuid())
-  booking   Booking  @relation(fields: [bookingId], references: [id])
-  bookingId String
-  rating    Int
-  comment   String?
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  tripId    String
+  type      String   // delay, location, status_change, etc.
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+}
+
+model OperatorAnalytics {
+  id            String   @id @default(cuid())
+  operator      Operator @relation(fields: [operatorId], references: [id])
+  operatorId    String
+  date          DateTime
+  totalBookings Int      @default(0)
+  totalRevenue  Int      @default(0) // in cents
+  totalTrips    Int      @default(0)
+  occupancyRate Float    @default(0)
+  averageRating Float    @default(0)
+  metadata      Json?    // Additional analytics data
+  createdAt     DateTime @default(now())
+  
+  @@unique([operatorId, date])
+}
+
+model SystemSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 }

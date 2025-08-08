@@ -4,6 +4,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { ReactQueryProvider } from '@/components/providers/react-query-provider'
 import { ThemeProvider } from 'next-themes'
 import { ToastProvider, ToastViewport } from '@/components/ui/toast'
+import { ChatbotProvider } from '@/components/providers/chatbot-provider'
 
 export const metadata: Metadata = {
   title: 'RideWave – Smart Vehicle Booking',
@@ -23,7 +24,9 @@ export default function RootLayout({
       <body>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           <ReactQueryProvider>
-            {children}
+            <ChatbotProvider>
+              {children}
+            </ChatbotProvider>
           </ReactQueryProvider>
           <ToastProvider>
             <ToastViewport />
