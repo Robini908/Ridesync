@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { Amenity, VehicleType } from '@prisma/client'
+import { getTenantContext, whereForVehicleByTenant } from '@/lib/authz'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -18,11 +19,14 @@ export async function GET(req: NextRequest) {
 
   const amenitiesFilter = amenityEnums.length ? { amenities: { hasEvery: amenityEnums } } : {}
 
+  const { tenantId } = await getTenantContext()
+
   const vehicles = await prisma.vehicle.findMany({
     where: {
       AND: [
         typeFilter,
-        amenitiesFilter
+        amenitiesFilter,
+        whereForVehicleByTenant(tenantId)
       ]
     }
   })
