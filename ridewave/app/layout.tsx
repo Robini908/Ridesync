@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
 import { ReactQueryProvider } from '@/components/providers/react-query-provider'
 import { ThemeProvider } from 'next-themes'
+import { ToastProvider, ToastViewport } from '@/components/ui/toast'
 
 export const metadata: Metadata = {
   title: 'RideWave – Smart Vehicle Booking',
@@ -24,6 +25,9 @@ export default function RootLayout({
           <ReactQueryProvider>
             {children}
           </ReactQueryProvider>
+          <ToastProvider>
+            <ToastViewport />
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

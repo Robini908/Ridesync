@@ -3,8 +3,11 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
-import { Menu } from 'lucide-react'
+import { Menu, User } from 'lucide-react'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+
+const hasClerk = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.includes('xxxxxxxx')
 
 export function SiteHeader() {
   return (
@@ -20,12 +23,32 @@ export function SiteHeader() {
         <Link href="/operators">
           <Button variant="ghost">For operators</Button>
         </Link>
-        <Link href="/sign-in">
-          <Button variant="secondary">Sign in</Button>
-        </Link>
-        <Link href="/sign-up">
-          <Button variant="accent">Create account</Button>
-        </Link>
+        {hasClerk ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Account">
+                <User size={18} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <Link href="/dashboard"><DropdownMenuItem>Dashboard</DropdownMenuItem></Link>
+              <Link href="/profile"><DropdownMenuItem>Profile</DropdownMenuItem></Link>
+              <DropdownMenuSeparator />
+              <Link href="/sign-out"><DropdownMenuItem>Sign out</DropdownMenuItem></Link>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <>
+            <Link href="/sign-in">
+              <Button variant="secondary">Sign in</Button>
+            </Link>
+            <Link href="/sign-up">
+              <Button variant="accent">Create account</Button>
+            </Link>
+          </>
+        )}
         <ThemeToggle />
       </nav>
       <div className="md:hidden">
@@ -39,8 +62,18 @@ export function SiteHeader() {
             <div className="mt-10 flex flex-col gap-3">
               <Link href="/search"><Button variant="ghost">Find a ride</Button></Link>
               <Link href="/operators"><Button variant="ghost">For operators</Button></Link>
-              <Link href="/sign-in"><Button variant="secondary">Sign in</Button></Link>
-              <Link href="/sign-up"><Button variant="accent">Create account</Button></Link>
+              {hasClerk ? (
+                <>
+                  <Link href="/dashboard"><Button variant="ghost">Dashboard</Button></Link>
+                  <Link href="/profile"><Button variant="ghost">Profile</Button></Link>
+                  <Link href="/sign-out"><Button variant="secondary">Sign out</Button></Link>
+                </>
+              ) : (
+                <>
+                  <Link href="/sign-in"><Button variant="secondary">Sign in</Button></Link>
+                  <Link href="/sign-up"><Button variant="accent">Create account</Button></Link>
+                </>
+              )}
               <ThemeToggle />
             </div>
           </SheetContent>
