@@ -37,6 +37,9 @@ enum UserRole {
   USER
   OPERATOR
   ADMIN
+  SUPER_ADMIN
+  DRIVER
+  SUPPORT
 }
 
 enum PaymentStatus {
@@ -66,6 +69,8 @@ model User {
   phone             String?
   avatar            String?
   role              UserRole    @default(USER)
+  permissions       String[]    @default([]) // Specific permissions array
+  isActive          Boolean     @default(true)
   preferences       Json?       // AI preferences, favorite routes, etc.
   loyaltyPoints     Int         @default(0)
   totalTrips        Int         @default(0)
@@ -73,6 +78,8 @@ model User {
   isPhoneVerified   Boolean     @default(false)
   language          String      @default("en")
   timezone          String      @default("UTC")
+  lastLoginAt       DateTime?
+  metadata          Json?       // Additional user data
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   
@@ -82,6 +89,9 @@ model User {
   notifications     Notification[]
   savedRoutes       SavedRoute[]
   paymentMethods    PaymentMethod[]
+  operatedVehicles  Vehicle[]   @relation("DriverVehicles") // For drivers
+  supportTickets    SupportTicket[] @relation("UserTickets")
+  assignedTickets   SupportTicket[] @relation("SupportAgent")
 }
 
 model Operator {
@@ -130,6 +140,12 @@ model Vehicle {
   currentLocation Json?         // {lat, lng, timestamp}
   lastMaintenance DateTime?
   nextMaintenance DateTime?
+  status          String        @default("available") // available, in_use, maintenance, inactive
+  
+  // Driver assignment
+  assignedDriverId String?
+  assignedDriver   User?         @relation("DriverVehicles", fields: [assignedDriverId], references: [id])
+  
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   
@@ -222,6 +238,8 @@ model Booking {
   reviews           Review[]
   notifications     Notification[]
   payments          Payment[]
+  supportTickets    SupportTicket[]
+  mpesaTransactions MPesaTransaction[]
 }
 
 model Review {
@@ -328,4 +346,53 @@ model SystemSettings {
   value     Json
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+model SupportTicket {
+  id          String   @id @default(cuid())
+  ticketNumber String  @unique
+  subject     String
+  description String
+  status      String   @default("open") // open, in_progress, resolved, closed
+  priority    String   @default("medium") // low, medium, high, urgent
+  category    String   // technical, billing, booking, complaint, etc.
+  
+  // User relations
+  userId      String
+  user        User     @relation("UserTickets", fields: [userId], references: [id], onDelete: Cascade)
+  
+  assignedToId String?
+  assignedTo   User?    @relation("SupportAgent", fields: [assignedToId], references: [id])
+  
+  // Optional booking relation
+  bookingId   String?
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+  
+  // Metadata
+  attachments String[] @default([])
+  tags        String[] @default([])
+  resolution  String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  resolvedAt  DateTime?
+}
+
+model MPesaTransaction {
+  id                  String   @id @default(cuid())
+  merchantRequestId   String   @unique
+  checkoutRequestId   String   @unique
+  bookingId          String
+  booking            Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  phoneNumber        String
+  amount             Int      // Amount in KES
+  status             String   // initiated, completed, failed, cancelled
+  resultCode         Int?
+  resultDesc         String?
+  transactionId      String?  // M-Pesa receipt number
+  accountReference   String
+  transactionDesc    String
+  metadata           Json?    // Additional transaction data
+  createdAt          DateTime @default(now())
+  processedAt        DateTime?
 }
