@@ -11,36 +11,27 @@ export const metadata: Metadata = {
   description: 'AI-powered bookings for buses, minibuses, and shuttles',
 }
 
-const pk = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-const isValidClerk = !!pk && /^pk_(test|live)_[A-Za-z0-9]+/.test(pk) && !pk.includes('xxxxxxxx') && !pk.includes('your-clerk-publishable-key') && !pk.includes('placeholder')
-
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const app = (
-    <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-          <ReactQueryProvider>
-            <ChatbotProvider>
-              {children}
-            </ChatbotProvider>
-          </ReactQueryProvider>
-          <ToastProvider>
-            <ToastViewport />
-          </ToastProvider>
-        </ThemeProvider>
-      </body>
-    </html>
-  )
-
-  if (!isValidClerk) return app
-
   return (
-    <ClerkProvider publishableKey={pk}>
-      {app}
+    <ClerkProvider>
+      <html lang="en" suppressHydrationWarning>
+        <body suppressHydrationWarning>
+          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+            <ReactQueryProvider>
+              <ChatbotProvider>
+                {children}
+              </ChatbotProvider>
+            </ReactQueryProvider>
+            <ToastProvider>
+              <ToastViewport />
+            </ToastProvider>
+          </ThemeProvider>
+        </body>
+      </html>
     </ClerkProvider>
   )
 }

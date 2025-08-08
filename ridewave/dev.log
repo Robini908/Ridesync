@@ -14,8 +14,18 @@
      · staleTimes
 
  ✓ Starting...
- ✓ Ready in 1189ms
- ✓ Compiled /middleware in 385ms (108 modules)
- ○ Compiling /operators ...
- ✓ Compiled /operators in 4.2s (1314 modules)
- GET /operators 200 in 4649ms
+ ✓ Ready in 1169ms
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 739ms (218 modules)
+ ○ Compiling / ...
+<w> [webpack.cache.PackFileCacheStrategy] Serializing big strings (166kiB) impacts deserialization performance (consider using Buffer instead and decode when needed)
+ ✓ Compiled / in 4.5s (1354 modules)
+ GET / 200 in 4994ms
+ ⨯ Error [ReferenceError]: exports is not defined
+    at <unknown> (.next/server/vendors.js:9)
+    at <unknown> (.next/server/vendors.js:9:1)
+ ○ Compiling /_error ...
+ ✓ Compiled /_error in 1440ms (1681 modules)
+ ⨯ Error [ReferenceError]: exports is not defined
+    at <unknown> (.next/server/vendors.js:9)
+    at <unknown> (.next/server/vendors.js:9:1)
